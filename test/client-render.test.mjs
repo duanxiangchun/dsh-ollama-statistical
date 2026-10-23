@@ -292,7 +292,7 @@ test('渲染冒烟：主页面 / 侧栏组件能用真实快照渲染且不抛�
   assert.ok(rendered.main, 'main 槽位应已注册')
   const mainText = collectText(rendered.main).join(' ')
   assert.match(mainText, /Ollama/, '主页面应渲染标题')
-  assert.match(mainText, /周额度估算/, '周卡应渲染 token 额度估算')
+  assert.match(mainText, /估算总量/, '周卡应渲染紧凑的 token 额度估算')
   const footerText = collectText(rendered['sidebar.footer.action']).join(' ')
   assert.match(footerText, /会话 5h/, '侧栏横条应渲染会话用量')
   assert.ok(rendered['sidebar.panellist'], '侧栏图标槽位应已注册')
@@ -309,3 +309,4 @@ test('渲染冒烟：无 key / 空 tokens 的降级快照也能渲染', async ()
   const text = collectText(rendered.main).join(' ')
   assert.match(text, /Ollama/, '主页面仍应渲染')
 })
+
