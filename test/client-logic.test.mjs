@@ -139,9 +139,14 @@ function makeTokens() {
     weekStart: '2026-10-19',
     windowDays: 30,
     timeZone: 'Asia/Shanghai',
-    // 今天 24 小时桶：第 i 小时 total=i（用于小时图断言）
+    // 今天 24 小时桶：第 i 小时 input/total=i（完整桶，用于趋势图断言）
     hours: Array.from({ length: 24 }, (_, hour) => ({
       hour: String(hour).padStart(2, '0'),
+      input: hour,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      reasoning: 0,
       total: hour,
       requests: 1,
       sessions: 1,
@@ -185,6 +190,11 @@ function makeTokens() {
         })),
         hours: Array.from({ length: 24 }, (_, hour) => ({
           hour: String(hour).padStart(2, '0'),
+          input: hour,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          reasoning: 0,
           total: hour,
           requests: 1,
           sessions: 1,
@@ -473,6 +483,55 @@ test('client：未上报的可选指标（缓存写/推理/缓存命中）为 0 
   // 常规指标永远展示
   assert.equal(T.showOptionalMetric({}, 'input'), true)
   assert.equal(T.showOptionalMetric(null, 'requests'), true)
+})
+
+test('client：chartTrend 多序列趋势数据（小时/天、完整桶、命中率、回退）', () => {
+  assert.equal(typeof T.chartTrend, 'function', '__test 缺少 chartTrend')
+  const tokens = makeTokens()
+  const hourSum = (23 * 24) / 2
+
+  // 今天：24 个点，带完整桶字段；input 逐点 = 小时序号
+  const today = T.chartTrend(tokens, 'all', 'today', tokens.today, tokens.today)
+  assert.equal(today.mode, 'hour')
+  assert.equal(today.points.length, 24)
+  assert.equal(today.points[0].label, '00')
+  assert.equal(today.points[23].label, '23')
+  assert.equal(today.points[5].input, 5)
+  assert.equal(today.points[5].total, 5)
+  assert.equal(today.points.reduce((a, p) => a + p.input, 0), hourSum)
+  assert.equal(today.points.reduce((a, p) => a + p.requests, 0), 24)
+  // 第 0 小时 input=0/cacheRead=0 → 命中率无意义（null）；其余为 0%
+  assert.equal(today.points[0].hitRate, null)
+  assert.equal(today.points[5].hitRate, 0)
+
+  // 单供应商：用 providers[].hours
+  const providerToday = T.chartTrend(tokens, 'ollama', 'today', tokens.today, tokens.today)
+  assert.equal(providerToday.mode, 'hour')
+  assert.equal(providerToday.points[7].input, 7)
+
+  // 本周：天模式，完整桶按范围求和（fixture 的 days.input = 日桶序号）
+  const week = T.chartTrend(tokens, 'all', 'week', tokens.weekStart, tokens.today)
+  assert.equal(week.mode, 'day')
+  assert.equal(week.points.length, 5)
+  assert.equal(week.points.reduce((a, p) => a + p.input, 0), 25 + 26 + 27 + 28 + 29)
+  assert.equal(week.points[0].label, '2026-10-19')
+
+  // 自定义起止都是今天 → 小时
+  assert.equal(T.chartTrend(tokens, 'all', 'custom', tokens.today, tokens.today).mode, 'hour')
+  // 跨天 → 天
+  assert.equal(T.chartTrend(tokens, 'all', 'custom', '2026-10-01', '2026-10-05').mode, 'day')
+
+  // 小时桶缺失 → 回退天（今天 1 个点），不崩
+  const noHours = { ...tokens, hours: undefined, providers: tokens.providers.map((p) => ({ ...p, hours: undefined })) }
+  const fallback = T.chartTrend(noHours, 'all', 'today', tokens.today, tokens.today)
+  assert.equal(fallback.mode, 'day')
+  assert.equal(fallback.points.length, 1)
+
+  // 兼容层：chartSeries 仍返回 total/requests 形状
+  const legacy = T.chartSeries(tokens, 'all', 'today', tokens.today, tokens.today)
+  assert.equal(legacy.mode, 'hour')
+  assert.equal(legacy.points[5].total, 5)
+  assert.equal(legacy.points[5].input, undefined)
 })
 
 const loaded = loadClient()

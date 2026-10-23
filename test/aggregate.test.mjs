@@ -674,7 +674,32 @@ test('聚合自洽: sum(provider.days)=provider.total / sum(model.days)=model.to
   assert.equal(models.reduce((total, model) => total + model.total, 0), sumDays)
 })
 
-test('aggregateTokenStats: 今天 24 小时桶（hour 00..23、缺小时补 0、历史日期不输出）', () => {
+const HOUR_ZERO = (hour) => ({
+  hour,
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  reasoning: 0,
+  total: 0,
+  requests: 0,
+  sessions: 0,
+})
+
+/** B(total, requests) 构造的小时桶（input/output/cache... 均为 0）转成完整小时输出。 */
+const HOUR_FROM_B = (hour, total, requests, sessions) => ({
+  hour,
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  reasoning: 0,
+  total,
+  requests,
+  sessions,
+})
+
+test('aggregateTokenStats: 今天 24 小时桶（hour 00..23、完整桶、缺小时补 0、历史日期不输出）', () => {
   const { days, providers, hours } = aggregateTokenStats(multiProviderSessions(), {
     today: '2026-10-23',
     windowDays: 30,
@@ -686,31 +711,42 @@ test('aggregateTokenStats: 今天 24 小时桶（hour 00..23、缺小时补 0、
     expectedHours,
   )
   for (const item of hours) {
-    assert.deepEqual(Object.keys(item).sort(), ['hour', 'requests', 'sessions', 'total'])
-    assert.ok([item.total, item.requests, item.sessions].every((value) => typeof value === 'number' && value >= 0))
+    assert.deepEqual(Object.keys(item).sort(), [
+      'cacheRead',
+      'cacheWrite',
+      'hour',
+      'input',
+      'output',
+      'reasoning',
+      'requests',
+      'sessions',
+      'total',
+    ])
+    assert.ok(
+      [
+        item.input,
+        item.output,
+        item.cacheRead,
+        item.cacheWrite,
+        item.reasoning,
+        item.total,
+        item.requests,
+        item.sessions,
+      ].every((value) => typeof value === 'number' && value >= 0),
+    )
   }
   // 10 点：s1 ollama 100/3；11 点：s1 wb 40 + s2 wb 5 = 45/2，两个会话
-  assert.deepEqual(hours.find((item) => item.hour === '10'), {
-    hour: '10',
-    total: 100,
-    requests: 3,
-    sessions: 1,
-  })
-  assert.deepEqual(hours.find((item) => item.hour === '11'), {
-    hour: '11',
-    total: 45,
-    requests: 2,
-    sessions: 2,
-  })
+  assert.deepEqual(hours.find((item) => item.hour === '10'), HOUR_FROM_B('10', 100, 3, 1))
+  assert.deepEqual(hours.find((item) => item.hour === '11'), HOUR_FROM_B('11', 45, 2, 2))
   // 22 日 09 点的小时数据不能进「今天」
-  assert.equal(hours.find((item) => item.hour === '09').total, 0)
+  assert.deepEqual(hours.find((item) => item.hour === '09'), HOUR_ZERO('09'))
   assert.ok(
     hours
       .filter((item) => item.hour !== '10' && item.hour !== '11')
-      .every((item) => item.total === 0 && item.requests === 0 && item.sessions === 0),
+      .every((item) => Object.entries(item).every(([key, value]) => key === 'hour' || value === 0)),
   )
 
-  // 恒等式：今天小时之和 = 今天日桶
+  // 恒等式：今天小时之和 = 今天日桶（total / requests）
   const todayBucket = days[days.length - 1]
   assert.equal(
     hours.reduce((total, item) => total + item.total, 0),
@@ -739,28 +775,112 @@ test('aggregateTokenStats: 今天 24 小时桶（hour 00..23、缺小时补 0、
     )
   }
   const ollama = providers.find((item) => item.provider === 'ollama')
-  assert.deepEqual(ollama.hours.find((item) => item.hour === '10'), {
-    hour: '10',
-    total: 100,
-    requests: 3,
-    sessions: 1,
-  })
+  assert.deepEqual(ollama.hours.find((item) => item.hour === '10'), HOUR_FROM_B('10', 100, 3, 1))
   const wb = providers.find((item) => item.provider === 'wb')
-  assert.deepEqual(wb.hours.find((item) => item.hour === '11'), {
+  assert.deepEqual(wb.hours.find((item) => item.hour === '11'), HOUR_FROM_B('11', 45, 2, 2))
+  assert.deepEqual(wb.hours.find((item) => item.hour === '10'), HOUR_ZERO('10'), 'wb 10 点没有调用')
+})
+
+test('aggregateTokenStats: hours 各字段逐项正确，并与 today day / provider day 各字段一致', () => {
+  const ollamaBucket = {
+    input: 100,
+    output: 20,
+    cacheRead: 5,
+    cacheWrite: 2,
+    reasoning: 1,
+    total: 120,
+    requests: 3,
+  }
+  const wbBucket1 = { input: 10, output: 10, cacheRead: 0, cacheWrite: 0, reasoning: 0, total: 20, requests: 1 }
+  const wbBucket2 = { input: 3, output: 2, cacheRead: 0, cacheWrite: 0, reasoning: 0, total: 5, requests: 1 }
+  const sessions = [
+    {
+      id: 's1',
+      fold: {
+        perDay: {
+          '2026-10-23': { ...EMPTY_BUCKET, input: 110, output: 30, cacheRead: 5, cacheWrite: 2, reasoning: 1, total: 140, requests: 4 },
+        },
+        perDayProvider: { '2026-10-23': { ollama: ollamaBucket, wb: wbBucket1 } },
+        perHour: { '2026-10-23T10': ollamaBucket, '2026-10-23T11': wbBucket1 },
+        perHourProvider: {
+          '2026-10-23T10': { ollama: ollamaBucket },
+          '2026-10-23T11': { wb: wbBucket1 },
+        },
+      },
+    },
+    {
+      id: 's2',
+      fold: {
+        perDay: { '2026-10-23': { ...EMPTY_BUCKET, input: 3, output: 2, total: 5, requests: 1 } },
+        perDayProvider: { '2026-10-23': { wb: wbBucket2 } },
+        perHour: { '2026-10-23T11': wbBucket2 },
+        perHourProvider: { '2026-10-23T11': { wb: wbBucket2 } },
+      },
+    },
+  ]
+  const { days, providers, hours } = aggregateTokenStats(sessions, { today: '2026-10-23', windowDays: 30 })
+  const today = days[days.length - 1]
+  // 每小时字段：10 点 = ollama 调用，11 点 = 两个 wb 调用
+  const hour10 = hours.find((item) => item.hour === '10')
+  assert.deepEqual(hour10, { hour: '10', ...ollamaBucket, sessions: 1 })
+  const hour11 = hours.find((item) => item.hour === '11')
+  assert.deepEqual(hour11, {
     hour: '11',
-    total: 45,
+    input: 13,
+    output: 12,
+    cacheRead: 0,
+    cacheWrite: 0,
+    reasoning: 0,
+    total: 25,
     requests: 2,
     sessions: 2,
   })
-  assert.equal(wb.hours.find((item) => item.hour === '10').total, 0, 'wb 10 点没有调用')
+  // 与 today day 桶逐字段相等（小时是日的细分）
+  for (const field of ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'total', 'requests']) {
+    assert.equal(
+      hours.reduce((sum, item) => sum + item[field], 0),
+      today[field],
+      'tokens.hours 的 ' + field + ' 合计必须等于 today days 桶',
+    )
+  }
+
+  for (const provider of providers) {
+    const providerToday = provider.days[provider.days.length - 1]
+    for (const field of ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning', 'total', 'requests']) {
+      assert.equal(
+        provider.hours.reduce((sum, item) => sum + item[field], 0),
+        providerToday[field],
+        provider.provider + ' hours 的 ' + field + ' 合计必须等于其 today days 桶',
+      )
+    }
+  }
+  const ollama = providers.find((item) => item.provider === 'ollama')
+  assert.deepEqual(ollama.hours.find((item) => item.hour === '10'), { hour: '10', ...ollamaBucket, sessions: 1 })
+  const wb = providers.find((item) => item.provider === 'wb')
+  assert.deepEqual(wb.hours.find((item) => item.hour === '11'), {
+    hour: '11',
+    input: 13,
+    output: 12,
+    cacheRead: 0,
+    cacheWrite: 0,
+    reasoning: 0,
+    total: 25,
+    requests: 2,
+    sessions: 2,
+  })
+  assert.deepEqual(wb.hours.find((item) => item.hour === '10'), HOUR_ZERO('10'))
 })
 
 test('aggregateTokenStats: 空输入时 hours 也是 24 项全 0', () => {
   const { hours } = aggregateTokenStats([], { today: '2026-10-23', windowDays: 30 })
   assert.equal(hours.length, 24)
-  assert.ok(hours.every((item) => item.total === 0 && item.requests === 0 && item.sessions === 0))
-  assert.deepEqual(hours[0], { hour: '00', total: 0, requests: 0, sessions: 0 })
-  assert.deepEqual(hours[23], { hour: '23', total: 0, requests: 0, sessions: 0 })
+  assert.ok(
+    hours.every(
+      (item) => item.total === 0 && item.input === 0 && item.output === 0 && item.requests === 0 && item.sessions === 0,
+    ),
+  )
+  assert.deepEqual(hours[0], HOUR_ZERO('00'))
+  assert.deepEqual(hours[23], HOUR_ZERO('23'))
 })
 
 test('aggregateTokenStats: provider/model 缺失的记录归到 (未知)', () => {
@@ -812,7 +932,7 @@ test('aggregateTokenStats: 空输入返回全 0 的 30 天、24 小时、空 pro
   assert.deepEqual(providers, [])
   assert.deepEqual(models, [])
   assert.equal(hours.length, 24)
-  assert.deepEqual(hours[0], { hour: '00', total: 0, requests: 0, sessions: 0 })
+  assert.deepEqual(hours[0], HOUR_ZERO('00'))
 })
 
 test('emptyTokenStats: sessionQuery 不可用时的兜底形状（scope/providers/30 天全 0）', () => {
@@ -828,8 +948,8 @@ test('emptyTokenStats: sessionQuery 不可用时的兜底形状（scope/provider
   assert.equal(stats.days[29].date, '2026-10-23')
   assert.ok(stats.days.every((day) => day.total === 0 && day.requests === 0 && day.sessions === 0))
   assert.equal(stats.hours.length, 24)
-  assert.deepEqual(stats.hours[0], { hour: '00', total: 0, requests: 0, sessions: 0 })
-  assert.deepEqual(stats.hours[23], { hour: '23', total: 0, requests: 0, sessions: 0 })
+  assert.deepEqual(stats.hours[0], HOUR_ZERO('00'))
+  assert.deepEqual(stats.hours[23], HOUR_ZERO('23'))
   assert.deepEqual(stats.providers, [])
   assert.deepEqual(stats.models, [])
   assert.deepEqual(stats.scan, {
