@@ -21,7 +21,7 @@ Ollama Cloud 5-hour session and weekly limits plus official request counts, and
 | **Ollama limits** | Ollama Cloud **5-hour session limit** and **weekly limit**: used/remaining percent, progress bar and reset countdown (official `GET /api/balance`) |
 | **Token statistics (all providers)** | **Whole-DSH token usage grouped by provider**: provider filter chips, per-provider share rows, merged or per-provider model lists, and three views: **today**, **this week (Monday → today)**, **custom range**. **Every metric (totals, input/output/cached tokens (cache-write/reasoning cards appear only when the provider reports them), requests, active days, sessions, provider shares and model lists) is scoped to the selected range**, plus a multi-series SVG trend chart (Input / Output / Cache Read / cache hit rate with a right-hand percent axis; 24 hourly points for today, daily points for week/custom) |
 | **Ollama official request counts** | Request counts for the last 24 hours / 7 days / 30 days from the official `GET /api/usage`, with sparklines |
-| **Sidebar bars** | Always-visible session (5h, light violet) and weekly (dark violet) bars with reset countdown in the tooltip, refreshed every 60 s |
+| **Sidebar bars** | Always-visible session (5h, light blue) and weekly (dark blue) bars with reset countdown in the tooltip, refreshed every 60 s |
 | **Statistics page** | Left sidebar panel icon opens the full page; light/dark themes, narrow-screen layout, keyboard accessible |
 | **No configuration** | Reuses the DSH-configured `OLLAMA_API_KEY` (credential store → environment → legacy Ollama CLI login); a key can also be pasted in the page |
 | **Zero dependencies** | Host uses Node built-ins only; Client only `require('react')`, no build step |
