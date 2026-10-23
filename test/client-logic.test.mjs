@@ -140,11 +140,11 @@ function makeTokens() {
     windowDays: 30,
     timeZone: 'Asia/Shanghai',
     days,
-    // 供应商分组：ollama 每天 total=index（与 tokens.days 一致）；wb 全 0（用于验证按供应商求和/占比）。
+    // 供应商分组：ollama 每天 total=index（完整桶，与 tokens.days 一致）；wb 全 0。
     providers: [
       {
         provider: 'ollama',
-        input: 0,
+        input: 435,
         output: 0,
         cacheRead: 0,
         cacheWrite: 0,
@@ -152,8 +152,30 @@ function makeTokens() {
         total: 435,
         requests: 30,
         sessions: 1,
-        models: [],
-        days: days.map((day, index) => ({ date: day.date, total: index, requests: 1 })),
+        models: [
+          {
+            model: 'modelA',
+            input: 435,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            reasoning: 0,
+            total: 435,
+            requests: 30,
+            days: days.map((day, index) => ({ date: day.date, total: index, requests: 1 })),
+          },
+        ],
+        days: days.map((day, index) => ({
+          date: day.date,
+          input: index,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          reasoning: 0,
+          total: index,
+          requests: 1,
+          sessions: 1,
+        })),
       },
       {
         provider: 'wb',
@@ -165,11 +187,59 @@ function makeTokens() {
         total: 0,
         requests: 0,
         sessions: 0,
-        models: [],
+        models: [
+          {
+            model: 'modelB',
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            reasoning: 0,
+            total: 0,
+            requests: 0,
+            days: days.map((day) => ({ date: day.date, total: 0, requests: 0 })),
+          },
+        ],
+        days: days.map((day) => ({
+          date: day.date,
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          reasoning: 0,
+          total: 0,
+          requests: 0,
+          sessions: 0,
+        })),
+      },
+    ],
+    // 模型榜：ollama 的 modelA 每天 total=index；wb 的 modelB 全 0。
+    models: [
+      {
+        provider: 'ollama',
+        model: 'modelA',
+        input: 435,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        reasoning: 0,
+        total: 435,
+        requests: 30,
+        days: days.map((day, index) => ({ date: day.date, total: index, requests: 1 })),
+      },
+      {
+        provider: 'wb',
+        model: 'modelB',
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        reasoning: 0,
+        total: 0,
+        requests: 0,
         days: days.map((day) => ({ date: day.date, total: 0, requests: 0 })),
       },
     ],
-    models: [],
     scan: { sessions: 2, candidates: 2, scanned: 2, fromCache: 0, covered: 2, failed: 0, retired: 0, pending: 0, elapsedMs: 1, partial: false },
   }
 }
@@ -212,6 +282,56 @@ test('client：providerRangeRows 按所选时间范围求和（chips/分布块�
   assert.equal(ghost.share, null)
   assert.equal(ghost.degraded, true)
   assert.equal(degradedRows.find((row) => row.provider === 'ollama').total, weekSumOllama, '缺失 days 不影响其他行')
+})
+
+test('client：单供应商指标与模型榜都按所选时间范围求和', () => {
+  const tokens = makeTokens()
+  const weekSum = 25 + 26 + 27 + 28 + 29
+
+  // 单供应商指标网格：走 providers[].days 完整桶的范围求和
+  assert.equal(typeof T.selectTokenSource, 'function', '__test 缺少 selectTokenSource')
+  assert.equal(typeof T.computeSourceRange, 'function', '__test 缺少 computeSourceRange')
+  const ollamaSource = T.selectTokenSource(tokens, 'ollama')
+  const week = T.computeSourceRange(ollamaSource, 'week')
+  assert.equal(week.agg.total, weekSum)
+  assert.equal(week.agg.input, weekSum, 'input 也是范围求和，不是窗口合计 435')
+  assert.equal(week.agg.requests, 5)
+  assert.equal(week.agg.sessions, 5)
+  assert.equal(week.agg.activeDays, 5)
+  const today = T.computeSourceRange(ollamaSource, 'today')
+  assert.equal(today.agg.total, 29)
+  assert.equal(today.agg.input, 29)
+
+  // 未知 provider 回退 all
+  const fallback = T.selectTokenSource(tokens, 'not-exist')
+  assert.equal(fallback.isAll, true)
+
+  // 模型榜范围口径
+  assert.equal(typeof T.modelRangeRows, 'function', '__test 缺少 modelRangeRows')
+  const modelRows = T.modelRangeRows(tokens, 'all', tokens.weekStart, tokens.today)
+  assert.equal(modelRows.length, 2)
+  assert.equal(modelRows[0].model, 'modelA', '按窗口 total 降序：modelA 在前')
+  assert.equal(modelRows[0].total, weekSum)
+  assert.equal(modelRows[1].total, 0)
+  const modelShareSum = modelRows.reduce((sum, row) => sum + (row.share || 0), 0)
+  assert.ok(Math.abs(modelShareSum - 100) < 0.5, '模型占比之和应 ≈100，实际 ' + modelShareSum)
+
+  // 单供应商模型榜
+  const providerModels = T.modelRangeRows(tokens, 'ollama', tokens.weekStart, tokens.today)
+  assert.equal(providerModels.length, 1)
+  assert.equal(providerModels[0].model, 'modelA')
+  assert.equal(providerModels[0].total, weekSum)
+  assert.equal(providerModels[0].degraded, false)
+
+  // 模型缺 days → degraded，使用窗口值兜底
+  const degradedTokens = {
+    ...tokens,
+    models: [{ provider: 'ollama', model: 'oldModel', total: 999, requests: 9 }],
+  }
+  const degradedRows = T.modelRangeRows(degradedTokens, 'all', tokens.weekStart, tokens.today)
+  assert.equal(degradedRows[0].total, 999, '缺 days 时用窗口 total 兜底')
+  assert.equal(degradedRows[0].degraded, true)
+  assert.equal(degradedRows[0].share, null)
 })
 
 const loaded = loadClient()

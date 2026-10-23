@@ -19,7 +19,7 @@ Ollama Cloud 5-hour session and weekly limits plus official request counts, and
 | Area | What you get |
 | --- | --- |
 | **Ollama limits** | Ollama Cloud **5-hour session limit** and **weekly limit**: used/remaining percent, progress bar and reset countdown (official `GET /api/balance`) |
-| **Token statistics (all providers)** | **Whole-DSH token usage grouped by provider**: provider filter chips, per-provider share rows, merged or per-provider model lists, and three views: **today**, **this week (Monday → today)**, **custom range**. Totals, input/output/cached tokens, requests, active days, sessions and a daily bar chart |
+| **Token statistics (all providers)** | **Whole-DSH token usage grouped by provider**: provider filter chips, per-provider share rows, merged or per-provider model lists, and three views: **today**, **this week (Monday → today)**, **custom range**. **Every metric (totals, input/output/cached/reasoning tokens, requests, active days, sessions, provider shares and model lists) is scoped to the selected range**, plus a daily bar chart |
 | **Ollama official request counts** | Request counts for the last 24 hours / 7 days / 30 days from the official `GET /api/usage`, with sparklines |
 | **Sidebar bars** | Always-visible session (5h, light violet) and weekly (dark violet) bars with reset countdown in the tooltip, refreshed every 60 s |
 | **Statistics page** | Left sidebar panel icon opens the full page; light/dark themes, narrow-screen layout, keyboard accessible |

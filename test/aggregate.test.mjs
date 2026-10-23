@@ -327,11 +327,22 @@ test('aggregateTokenStats: 全部供应商合计 + 按供应商分组 + 会话�
   )
 })
 
-test('aggregateTokenStats: providers[].days 与 tokens.days 同长同序、且合计等于 provider.total', () => {
+test('aggregateTokenStats: providers[].days 完整桶、与 tokens.days 同长同序、合计等于 provider.total', () => {
   const { days, providers } = aggregateTokenStats(multiProviderSessions(), {
     today: '2026-10-23',
     windowDays: 30,
   })
+  const bucketKeys = [
+    'cacheRead',
+    'cacheWrite',
+    'date',
+    'input',
+    'output',
+    'reasoning',
+    'requests',
+    'sessions',
+    'total',
+  ]
   for (const provider of providers) {
     assert.equal(provider.days.length, days.length)
     assert.deepEqual(
@@ -340,13 +351,121 @@ test('aggregateTokenStats: providers[].days 与 tokens.days 同长同序、且�
     )
     const sum = provider.days.reduce((total, day) => total + day.total, 0)
     assert.equal(sum, provider.total)
-    assert.ok(provider.days.every((day) => typeof day.requests === 'number' && day.requests >= 0))
-    assert.deepEqual(Object.keys(provider.days[0]).sort(), ['date', 'requests', 'total'])
+    assert.equal(
+      provider.days.reduce((total, day) => total + day.requests, 0),
+      provider.requests,
+    )
+    for (const day of provider.days) {
+      assert.deepEqual(Object.keys(day).sort(), bucketKeys, 'provider 日桶必须是完整桶')
+      assert.ok(
+        [day.input, day.output, day.cacheRead, day.cacheWrite, day.reasoning, day.total, day.requests, day.sessions].every(
+          (value) => typeof value === 'number' && value >= 0,
+        ),
+      )
+    }
+    // 缺日补 0（窗口第一天没有任何调用）
+    assert.equal(provider.days[0].total, 0)
+    assert.equal(provider.days[0].sessions, 0)
   }
+
   const ollamaToday = providers[0].days.find((day) => day.date === '2026-10-23')
   assert.equal(ollamaToday.total, 100)
   assert.equal(ollamaToday.requests, 3)
-  assert.equal(providers[1].days.find((day) => day.date === '2026-10-23').total, 45)
+  assert.equal(ollamaToday.sessions, 1, '只有 s1 当天用过 ollama')
+
+  const wbToday = providers[1].days.find((day) => day.date === '2026-10-23')
+  assert.equal(wbToday.total, 45)
+  assert.equal(wbToday.requests, 2)
+  assert.equal(wbToday.sessions, 2, 's1 与 s2 当天都用过 wb')
+})
+
+test('aggregateTokenStats: providers[].days 的 input/output/cache/requests/sessions 逐项正确', () => {
+  const sessions = [
+    {
+      id: 's1',
+      fold: {
+        perDay: { '2026-10-23': { ...EMPTY_BUCKET, input: 13, output: 7, total: 20, requests: 3 } },
+        perDayProvider: {
+          '2026-10-23': {
+            p1: { ...EMPTY_BUCKET, input: 10, output: 5, cacheRead: 2, cacheWrite: 1, total: 15, requests: 2 },
+          },
+        },
+      },
+    },
+    {
+      id: 's2',
+      fold: {
+        perDay: { '2026-10-23': { ...EMPTY_BUCKET, input: 3, output: 2, total: 5, requests: 1 } },
+        perDayProvider: { '2026-10-23': { p1: { ...EMPTY_BUCKET, input: 3, output: 2, total: 5, requests: 1 } } },
+      },
+    },
+  ]
+  const { providers } = aggregateTokenStats(sessions, { today: '2026-10-23', windowDays: 30 })
+  const p1 = providers[0]
+  const today = p1.days.find((day) => day.date === '2026-10-23')
+  assert.deepEqual(today, {
+    date: '2026-10-23',
+    input: 13,
+    output: 7,
+    cacheRead: 2,
+    cacheWrite: 1,
+    reasoning: 0,
+    total: 20,
+    requests: 3,
+    sessions: 2,
+  })
+  assert.equal(p1.sessions, 2)
+})
+
+test('aggregateTokenStats: models[].days 与 tokens.days 对齐、缺日补 0、合计等于模型 total', () => {
+  const { days, models } = aggregateTokenStats(multiProviderSessions(), {
+    today: '2026-10-23',
+    windowDays: 30,
+  })
+  for (const model of models) {
+    assert.equal(model.days.length, days.length)
+    assert.deepEqual(
+      model.days.map((day) => day.date),
+      days.map((day) => day.date),
+    )
+    assert.deepEqual(Object.keys(model.days[0]).sort(), ['date', 'requests', 'total'])
+    assert.equal(
+      model.days.reduce((total, day) => total + day.total, 0),
+      model.total,
+    )
+    assert.equal(
+      model.days.reduce((total, day) => total + day.requests, 0),
+      model.requests,
+    )
+    assert.equal(model.days[0].total, 0, '缺日补 0')
+  }
+  const m1 = models.find((model) => model.model === 'm1')
+  assert.equal(m1.days.find((day) => day.date === '2026-10-23').total, 60)
+  assert.equal(m1.days.find((day) => day.date === '2026-10-22').total, 7)
+})
+
+test('aggregateTokenStats: providers[].models[].days 对齐且合计等于该模型 total', () => {
+  const { providers } = aggregateTokenStats(multiProviderSessions(), {
+    today: '2026-10-23',
+    windowDays: 30,
+  })
+  for (const provider of providers) {
+    for (const model of provider.models) {
+      assert.equal(model.days.length, 30)
+      assert.equal(
+        model.days.reduce((total, day) => total + day.total, 0),
+        model.total,
+        provider.provider + '/' + model.model,
+      )
+      assert.equal(
+        model.days.reduce((total, day) => total + day.requests, 0),
+        model.requests,
+      )
+    }
+  }
+  const ollamaM1 = providers[0].models.find((model) => model.model === 'm1')
+  assert.equal(ollamaM1.days.find((day) => day.date === '2026-10-23').total, 60)
+  assert.equal(ollamaM1.days.find((day) => day.date === '2026-10-22').total, 7)
 })
 
 test('aggregateTokenStats: 全局模型榜带 provider，且与 days 同口径', () => {
@@ -395,6 +514,13 @@ test('aggregateTokenStats: provider 内模型榜 top10 + (其余)', () => {
     providers[0].models.reduce((total, model) => total + model.total, 0),
     providers[0].total,
   )
+  // (其余) 的 days 必须是被合并模型逐日相加
+  assert.equal(providers[0].models[10].days.length, 30)
+  assert.equal(providers[0].models[10].days.find((day) => day.date === '2026-10-23').total, 3)
+  assert.equal(
+    providers[0].models[10].days.reduce((total, day) => total + day.total, 0),
+    providers[0].models[10].total,
+  )
 })
 
 test('aggregateTokenStats: 全局模型榜 top10 + 一条 {provider:"(其余)",model:"(其余)"}', () => {
@@ -420,6 +546,86 @@ test('aggregateTokenStats: 全局模型榜 top10 + 一条 {provider:"(其余)",m
   assert.equal(models[10].model, '(其余)')
   assert.equal(models[10].total, 3)
   assert.ok(models.slice(0, 10).every((item) => typeof item.provider === 'string' && item.provider !== '(其余)'))
+  assert.equal(models[10].days.length, 30)
+  assert.equal(
+    models[10].days.reduce((total, day) => total + day.total, 0),
+    models[10].total,
+    '全局 (其余) 的 days 由被合并条目逐日相加',
+  )
+})
+
+test('aggregateTokenStats: (其余) 合并跨天 days 时逐日相加（provider 内 & 全局）', () => {
+  const modelsByProvider = {}
+  // 12 个模型，每个在两天的分布不同；前 2 名之外都进 (其余)
+  for (let index = 1; index <= 12; index += 1) {
+    const model = 'm-' + String(index).padStart(2, '0')
+    modelsByProvider[model] = {}
+    modelsByProvider[model]['2026-10-23'] = B(13 - index)
+    modelsByProvider[model]['2026-10-22'] = B(index)
+  }
+  const sessions = [
+    {
+      id: 's1',
+      fold: {
+        perDay: {
+          '2026-10-23': { ...EMPTY_BUCKET, total: 78, requests: 12 },
+          '2026-10-22': { ...EMPTY_BUCKET, total: 78, requests: 12 },
+        },
+        perDayProvider: {
+          '2026-10-23': { p1: B(78, 12) },
+          '2026-10-22': { p1: B(78, 12) },
+        },
+        perDayProviderModel: {
+          '2026-10-23': { p1: modelsByProviderDay23(modelsByProvider) },
+          '2026-10-22': { p1: modelsByProviderDay22(modelsByProvider) },
+        },
+      },
+    },
+  ]
+  const { providers, models } = aggregateTokenStats(sessions, { today: '2026-10-23', windowDays: 30 })
+  // 10/23 的 (其余) 合计 3（model-11=2 + model-12=1）；10/22 的 (其余) 合计 23（11+12）
+  const providerRest = providers[0].models.find((item) => item.model === '(其余)')
+  assert.equal(providerRest.days.find((day) => day.date === '2026-10-23').total, 3)
+  assert.equal(providerRest.days.find((day) => day.date === '2026-10-22').total, 23)
+
+  const globalRest = models[models.length - 1]
+  assert.equal(globalRest.provider, '(其余)')
+  assert.equal(globalRest.days.length, 30)
+  assert.equal(
+    globalRest.days.reduce((total, day) => total + day.total, 0),
+    globalRest.total,
+  )
+})
+
+/** 把两天的模型数据拆成两个 per-day map（测试辅助）。 */
+function modelsByProviderDay23(source) {
+  const out = {}
+  for (const [model, days] of Object.entries(source)) out[model] = days['2026-10-23']
+  return out
+}
+function modelsByProviderDay22(source) {
+  const out = {}
+  for (const [model, days] of Object.entries(source)) out[model] = days['2026-10-22']
+  return out
+}
+
+test('聚合自洽: sum(provider.days)=provider.total / sum(model.days)=model.total / sum(tokens.days)=sum(models)', () => {
+  const { days, providers, models } = aggregateTokenStats(multiProviderSessions(), {
+    today: '2026-10-23',
+    windowDays: 30,
+  })
+  const sumDays = days.reduce((total, day) => total + day.total, 0)
+  assert.equal(providers.reduce((total, provider) => total + provider.total, 0), sumDays)
+  for (const provider of providers) {
+    assert.equal(provider.days.reduce((total, day) => total + day.total, 0), provider.total)
+    for (const model of provider.models) {
+      assert.equal(model.days.reduce((total, day) => total + day.total, 0), model.total)
+    }
+  }
+  for (const model of models) {
+    assert.equal(model.days.reduce((total, day) => total + day.total, 0), model.total)
+  }
+  assert.equal(models.reduce((total, model) => total + model.total, 0), sumDays)
 })
 
 test('aggregateTokenStats: provider/model 缺失的记录归到 (未知)', () => {
