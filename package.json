@@ -51,7 +51,8 @@
     "dsh": ">=0.2.1-rc.1"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "prepublishOnly": "node --test"
   },
   "keywords": [
     "deepseek",

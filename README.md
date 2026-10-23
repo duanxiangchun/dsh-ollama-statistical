@@ -9,6 +9,9 @@
 
 [English](README.en.md) · [MIT](LICENSE)
 
+[![CI](https://github.com/duanxiangchun/dsh-ollama-statistical/actions/workflows/ci.yml/badge.svg)](https://github.com/duanxiangchun/dsh-ollama-statistical/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/dsh-ollama-statistical.svg)](https://www.npmjs.com/package/dsh-ollama-statistical)
+
 </div>
 
 ---
@@ -24,6 +27,25 @@
 | **独立统计页** | 左侧栏面板图标 → 完整统计页；亮/暗主题、窄屏自适应、键盘可达 |
 | **无需配置** | 自动复用 DSH 已配置的 `OLLAMA_API_KEY`（凭证库 → 环境变量 → 旧版 Ollama CLI 登录），也可在页面里手动粘贴 / 随时更换 Key（A 区标题右侧「更换 Key」按钮） |
 | **零依赖** | Host 只用 Node 内建能力；Client 只 `require('react')`，无构建步骤 |
+
+---
+
+## 🚀 发布 / Release
+
+发布由 GitHub Actions 自动完成（`.github/workflows/publish.yml`）：
+
+1. 在 npm 上创建 **Automation token**（npm → Access Tokens → Generate New Token → Automation）；
+2. GitHub 仓库 → Settings → Secrets and variables → Actions → New repository secret，名字填 `NPM_TOKEN`，值粘贴 token；
+3. 发版：
+
+   ```bash
+   npm version patch   # 或 minor / major，会改 package.json 并打 v* tag
+   git push --follow-tags
+   ```
+
+推上 `v*` tag 后流水线会：跑测试 → 校验 tag 与 package.json 版本一致 → `npm publish --provenance` → 建 GitHub Release。
+
+> 也可以改用 npm 的 **Trusted Publishing**（OIDC，无需长期 token）：先在 npmjs.com 包设置里把本仓库的 publish.yml 配为 trusted publisher，然后删掉工作流里的 `NODE_AUTH_TOKEN`。
 
 ## 🔍 数据来源与口径（重要）
 
