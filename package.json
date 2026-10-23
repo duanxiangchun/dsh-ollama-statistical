@@ -1,6 +1,6 @@
 {
   "name": "dsh-ollama-statistical",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "DeepSeek Harness 插件：显示 Ollama Cloud 的 5 小时会话限额、周限额与官方请求量，并按供应商（provider）分类统计整个 DSH 的 token 用量（今天 / 本周周一开始 / 自定义日期，数据来自本机 DSH 会话日志），提供侧栏独立统计页与侧栏底部常驻双横条。Ollama Cloud session (5h) / weekly limits and official request counts, plus whole-DSH token usage broken down by provider (today / this week starting Monday / custom range from local session logs) for DeepSeek Harness, with a dedicated statistics page and persistent sidebar bars.",
   "type": "module",
   "main": "lib/index.js",
