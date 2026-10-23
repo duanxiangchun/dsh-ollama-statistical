@@ -23,7 +23,7 @@ Ollama Cloud 5-hour session and weekly limits plus official request counts, and
 | **Ollama official request counts** | Request counts for the last 24 hours / 7 days / 30 days from the official `GET /api/usage`, with sparklines |
 | **Sidebar bars** | Always-visible session (5h, amber) and weekly (teal-green) bars with reset countdown in the tooltip, refreshed every 60 s |
 | **Statistics page** | Left sidebar panel icon opens the full page; light/dark themes, narrow-screen layout, keyboard accessible |
-| **No configuration** | Reuses the DSH-configured `OLLAMA_API_KEY` (credential store → environment → legacy Ollama CLI login); a key can also be pasted in the page |
+| **No configuration** | Reuses the DSH-configured `OLLAMA_API_KEY` (credential store → environment → legacy Ollama CLI login); a key can also be pasted or replaced in the page (the “Change key” button next to the limits header) |
 | **Zero dependencies** | Host uses Node built-ins only; Client only `require('react')`, no build step |
 
 ## 🔍 Data sources and scope (important)
