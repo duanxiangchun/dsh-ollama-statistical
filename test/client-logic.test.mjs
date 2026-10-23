@@ -248,6 +248,15 @@ test('client：i18n 语言判定、插值、字典键对称', () => {
   assert.ok(zhKeys.length >= 100, '字典应覆盖全部文案，实际 ' + zhKeys.length)
   const emptyValues = zhKeys.filter((key) => typeof T.DICT_ZH[key] !== 'string' || T.DICT_ZH[key].trim() === '' || typeof T.DICT_EN[key] !== 'string' || T.DICT_EN[key].trim() === '')
   assert.deepEqual(emptyValues, [], '不允许空文案')
+
+  // 5 小时窗口说明文案（会话限额卡副标题）必须中英齐备且带 {start} 占位符。
+  for (const key of ['limits.sessionNote', 'limits.sessionNotePlain']) {
+    assert.equal(typeof T.DICT_ZH[key], 'string', 'zh 缺少 ' + key)
+    assert.equal(typeof T.DICT_EN[key], 'string', 'en 缺少 ' + key)
+  }
+  assert.ok(T.DICT_ZH['limits.sessionNote'].includes('{start}'), 'zh sessionNote 需要 {start} 占位符')
+  assert.ok(T.DICT_EN['limits.sessionNote'].includes('{start}'), 'en sessionNote 需要 {start} 占位符')
+  assert.ok(T.interpolate(T.DICT_ZH['limits.sessionNote'], { start: '10-23 17:00' }).includes('10-23 17:00'))
 })
 
 test('client：数字 / 百分比 / 紧凑数 / 时间格式化', () => {
