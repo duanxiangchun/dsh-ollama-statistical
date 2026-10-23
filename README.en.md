@@ -62,9 +62,6 @@ dsh --profile desktop
 After installing, **refresh the DSH Web page** (or restart DSH) to load the client bundle; the Host side is live
 immediately. An Ollama statistics icon appears in the left sidebar and usage bars at the sidebar foot.
 
-> **Coexistence**: if `dsh-ollama-usage` is still enabled, the sidebar foot shows two sets of bars (its features are
-> covered by this plugin); disable the old plugin in Settings → Plugins.
-
 ## 🚀 Usage
 
 1. Click the Ollama icon in the left sidebar;
@@ -146,4 +143,3 @@ On a `v*` tag the workflow runs tests, checks tag == package.json version, runs 
 ## 📄 License
 
 [MIT](LICENSE)
-
