@@ -407,6 +407,58 @@ test('client：chartSeries 粒度自适应（今天→24 小时，本周/跨天�
   assert.equal(T.chartSeries(shortHours, 'all', 'today', tokens.today, tokens.today).mode, 'day')
 })
 
+test('client：模型榜/供应商分布按「当前范围」数值从高到低排序（不是窗口总量）', () => {
+  const tokens = makeTokens()
+  const days = tokens.days
+
+  // 模型：bigWindowLowRange 窗口总量大但本周为 0；smallWindowHighRange 反之 → 本周应按后者在前
+  const reorderModels = {
+    ...tokens,
+    models: [
+      {
+        provider: 'ollama',
+        model: 'bigWindowLowRange',
+        total: 1000,
+        requests: 10,
+        days: days.map((day) => ({ date: day.date, total: 0, requests: 0 })),
+      },
+      {
+        provider: 'ollama',
+        model: 'smallWindowHighRange',
+        total: 100,
+        requests: 5,
+        days: days.map((day) => ({ date: day.date, total: day.date === tokens.today ? 50 : 0, requests: 1 })),
+      },
+    ],
+  }
+  const modelRows = T.modelRangeRows(reorderModels, 'all', tokens.weekStart, tokens.today)
+  assert.equal(modelRows[0].model, 'smallWindowHighRange', '按范围 token 降序，范围值大的排前面')
+  assert.equal(modelRows[1].model, 'bigWindowLowRange')
+
+  // 供应商：A 窗口大但本周 0；B 窗口小但本周有量 → B 在前
+  const reorderProviders = {
+    ...tokens,
+    providers: [
+      {
+        provider: 'bigWindowProvider',
+        input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0,
+        total: 1000, requests: 10, sessions: 1, models: [],
+        days: days.map((day) => ({ date: day.date, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, total: 0, requests: 0, sessions: 0 })),
+      },
+      {
+        provider: 'smallWindowProvider',
+        input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0,
+        total: 100, requests: 5, sessions: 1, models: [],
+        days: days.map((day) => ({ date: day.date, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, total: day.date === tokens.today ? 50 : 0, requests: 1, sessions: 1 })),
+      },
+    ],
+    days: days.map((day) => ({ ...day, total: day.date === tokens.today ? 50 : 0, input: day.date === tokens.today ? 50 : 0 })),
+  }
+  const providerRows = T.providerRangeRows(reorderProviders, tokens.weekStart, tokens.today)
+  assert.equal(providerRows[0].provider, 'smallWindowProvider', '按范围 token 降序')
+  assert.equal(providerRows[1].provider, 'bigWindowProvider')
+})
+
 const loaded = loadClient()
 const T = loaded.exports.__test
 
