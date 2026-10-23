@@ -121,25 +121,6 @@ node .dev/verify-rpc.mjs    # live envelope + shape + secret-leak probe against 
 > `lib/index.js`, disable and re-enable the bundle in the plugin manager; after editing `lib/client.js`, just
 > refresh the page.
 
----
-
-## 🚀 Release pipeline
-
-Publishing is automated by GitHub Actions (`.github/workflows/publish.yml`):
-
-1. Create an npm **Automation token** (npm → Access Tokens → Generate New Token → Automation);
-2. Repo → Settings → Secrets and variables → Actions → New repository secret: `NPM_TOKEN`;
-3. Release:
-
-   ```bash
-   npm version patch   # or minor / major — bumps package.json and creates the v* tag
-   git push --follow-tags
-   ```
-
-On a `v*` tag the workflow runs tests, checks tag == package.json version, runs `npm publish --provenance`, and creates a GitHub Release.
-
-> Alternatively use npm **Trusted Publishing** (OIDC, no long-lived token): configure this repo's publish.yml as the trusted publisher on npmjs.com and drop `NODE_AUTH_TOKEN` from the workflow.
-
 ## 📄 License
 
 [MIT](LICENSE)

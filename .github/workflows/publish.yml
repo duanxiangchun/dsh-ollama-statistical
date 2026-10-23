@@ -1,6 +1,16 @@
 name: Publish to npm
 
-# 推一个 v* tag 就会发布：先跑测试，再 npm publish（带 provenance），最后建 GitHub Release。
+# 触发：推一个 v* tag（例如 `npm version patch` 后 `git push --follow-tags`）。
+# 流程：校验 tag 与 package.json 版本一致 → 跑测试 → npm publish（带 provenance）→ 建 GitHub Release。
+#
+# 首次配置（二选一）：
+#  A. 长期 token：在 npm 上生成 Automation token，存到仓库 Secret `NPM_TOKEN`；
+#  B. Trusted Publishing（OIDC，推荐）：npmjs.com 包设置里把本工作流配为 trusted publisher，
+#     并删除下面 publish 步骤的 NODE_AUTH_TOKEN。
+#
+# 注意：npm 对来自 CI 的发布启用了 Staged publishing —— 上传后版本会进入暂存队列
+# （registry 上暂时只有占位包 0.0.0-stage），需要维护者带 2FA 在 npmjs.com 的
+# 「Staged publishes」里批准，或本地执行 `npm stage approve <pkg>@<version>`（npm ≥ 11.15）。
 on:
   push:
     tags:
