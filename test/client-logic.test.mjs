@@ -534,6 +534,19 @@ test('client：chartTrend 多序列趋势数据（小时/天、完整桶、命�
   assert.equal(legacy.points[5].input, undefined)
 })
 
+test('client：底部横条沿用语义色（充足绿 / 70% 黄 / 90% 红）', () => {
+  assert.equal(typeof T.toneFill, 'function', '__test 缺少 toneFill')
+  assert.ok(T.toneFill(10).includes('state-success-primary'), T.toneFill(10))
+  assert.ok(T.toneFill(75).includes('state-warn-primary'), T.toneFill(75))
+  assert.ok(T.toneFill(95).includes('state-error-primary'), T.toneFill(95))
+  assert.ok(T.toneFill(null).includes('label-tertiary'), T.toneFill(null))
+  // 阈值与 toneOf 一致
+  assert.equal(T.toneOf(69.9), 'ok')
+  assert.equal(T.toneOf(70), 'warn')
+  assert.equal(T.toneOf(89.9), 'warn')
+  assert.equal(T.toneOf(90), 'error')
+})
+
 const loaded = loadClient()
 const T = loaded.exports.__test
 
