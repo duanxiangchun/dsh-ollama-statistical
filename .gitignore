@@ -2,6 +2,8 @@
 node_modules/
 
 # Local scratch / probes
+# 开发用探针/协议/验收报告：含本机绝对路径、机器名与真实用量样本，不入库
+.dev/
 .tmp/
 *.log
 
