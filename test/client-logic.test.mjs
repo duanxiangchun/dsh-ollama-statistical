@@ -134,16 +134,85 @@ function makeTokens() {
     })
   }
   return {
-    provider: 'ollama',
+    scope: 'all-providers',
     today: '2026-10-23',
     weekStart: '2026-10-19',
     windowDays: 30,
     timeZone: 'Asia/Shanghai',
     days,
+    // 供应商分组：ollama 每天 total=index（与 tokens.days 一致）；wb 全 0（用于验证按供应商求和/占比）。
+    providers: [
+      {
+        provider: 'ollama',
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        reasoning: 0,
+        total: 435,
+        requests: 30,
+        sessions: 1,
+        models: [],
+        days: days.map((day, index) => ({ date: day.date, total: index, requests: 1 })),
+      },
+      {
+        provider: 'wb',
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        reasoning: 0,
+        total: 0,
+        requests: 0,
+        sessions: 0,
+        models: [],
+        days: days.map((day) => ({ date: day.date, total: 0, requests: 0 })),
+      },
+    ],
     models: [],
-    scan: { sessions: 2, candidates: 2, scanned: 2, fromCache: 0, covered: 2, pending: 0, elapsedMs: 1, partial: false },
+    scan: { sessions: 2, candidates: 2, scanned: 2, fromCache: 0, covered: 2, failed: 0, retired: 0, pending: 0, elapsedMs: 1, partial: false },
   }
 }
+
+test('client：providerRangeRows 按所选时间范围求和（chips/分布块与 hero 同口径）', () => {
+  assert.equal(typeof T.providerRangeRows, 'function', '__test 缺少 providerRangeRows')
+  const tokens = makeTokens()
+  // 本周（10-19..10-23 → 日桶序号 25..29）
+  const weekSumOllama = 25 + 26 + 27 + 28 + 29
+  const rows = T.providerRangeRows(tokens, tokens.weekStart, tokens.today)
+  assert.equal(rows.length, 2)
+  // 顺序按窗口总量降序：ollama(435) 在前，wb(0) 在后
+  assert.equal(rows[0].provider, 'ollama')
+  assert.equal(rows[1].provider, 'wb')
+  assert.equal(rows[0].total, weekSumOllama, 'ollama 本周 = 日桶求和')
+  assert.equal(rows[0].requests, 5)
+  assert.equal(rows[1].total, 0, 'wb 本周无用量')
+  const shareSum = rows.reduce((sum, row) => sum + (row.share || 0), 0)
+  assert.ok(Math.abs(shareSum - 100) < 0.5, 'share 之和应 ≈100，实际 ' + shareSum)
+
+  // 与全部视图 hero 总量严格一致
+  const allWeek = T.computeRange(tokens, 'week')
+  assert.equal(rows.reduce((sum, row) => sum + row.total, 0), allWeek.agg.total)
+  assert.equal(rows.reduce((sum, row) => sum + row.requests, 0), allWeek.agg.requests)
+
+  // 今天：只取最后一天
+  const todayRows = T.providerRangeRows(tokens, tokens.today, tokens.today)
+  assert.equal(todayRows.find((row) => row.provider === 'ollama').total, 29)
+  assert.equal(todayRows.find((row) => row.provider === 'wb').total, 0)
+
+  // providers[].days 缺失 → 该行 degraded（total/share 为 null），其余行不受影响
+  const degradedTokens = {
+    ...tokens,
+    providers: tokens.providers.concat([{ provider: 'ghost', total: 1, requests: 1 }]),
+  }
+  const degradedRows = T.providerRangeRows(degradedTokens, tokens.weekStart, tokens.today)
+  const ghost = degradedRows.find((row) => row.provider === 'ghost')
+  assert.ok(ghost, '缺失 days 的 provider 仍应出现（降级行）')
+  assert.equal(ghost.total, null)
+  assert.equal(ghost.share, null)
+  assert.equal(ghost.degraded, true)
+  assert.equal(degradedRows.find((row) => row.provider === 'ollama').total, weekSumOllama, '缺失 days 不影响其他行')
+})
 
 const loaded = loadClient()
 const T = loaded.exports.__test
