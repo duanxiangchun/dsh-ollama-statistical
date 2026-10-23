@@ -459,6 +459,22 @@ test('client：模型榜/供应商分布按「当前范围」数值从高到低�
   assert.equal(providerRows[1].provider, 'bigWindowProvider')
 })
 
+test('client：未上报的可选指标（缓存写/推理/缓存命中）为 0 时不展示卡片', () => {
+  assert.equal(typeof T.showOptionalMetric, 'function', '__test 缺少 showOptionalMetric')
+  // 真实日志里只有 input/output/total/cacheRead → 缓存写/推理为 0 时不显示
+  assert.equal(T.showOptionalMetric({ input: 1000, output: 100, cacheRead: 100, cacheWrite: 0, reasoning: 0 }, 'cacheWrite'), false)
+  assert.equal(T.showOptionalMetric({ input: 1000, output: 100, cacheRead: 100, cacheWrite: 0, reasoning: 0 }, 'reasoning'), false)
+  // 有缓存读时命中率卡片保留
+  assert.equal(T.showOptionalMetric({ cacheRead: 100, cacheWrite: 0 }, 'cacheHit'), true)
+  assert.equal(T.showOptionalMetric({ cacheRead: 0, cacheWrite: 0 }, 'cacheHit'), false, '没有缓存读时命中率无意义')
+  // 字段有值时正常展示
+  assert.equal(T.showOptionalMetric({ cacheWrite: 5 }, 'cacheWrite'), true)
+  assert.equal(T.showOptionalMetric({ reasoning: 7 }, 'reasoning'), true)
+  // 常规指标永远展示
+  assert.equal(T.showOptionalMetric({}, 'input'), true)
+  assert.equal(T.showOptionalMetric(null, 'requests'), true)
+})
+
 const loaded = loadClient()
 const T = loaded.exports.__test
 
