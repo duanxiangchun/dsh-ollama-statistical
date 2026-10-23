@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Ollama Usage Statistics",
+    "description": "Shows Ollama Cloud 5-hour session and weekly limits, plus token usage for the configured API key by today, this week (starting Monday) and a custom date range."
+  }
+}

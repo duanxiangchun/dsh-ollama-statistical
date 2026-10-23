@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Ollama 用量统计",
+    "description": "显示 Ollama Cloud 的 5 小时会话限额与周限额，并按今天、本周（周一开始）与自定义日期统计该 API Key 的 token 用量。"
+  }
+}

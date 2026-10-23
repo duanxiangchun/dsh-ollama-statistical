@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Ollama usage statistics">
+  <defs>
+    <linearGradient id="dsos-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8b7bf7"/>
+      <stop offset="1" stop-color="#5b46d6"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#dsos-bg)"/>
+  <circle cx="32" cy="28" r="12.5" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="4.5"/>
+  <circle cx="32" cy="28" r="12.5" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round"
+          stroke-dasharray="58.9 78.5" transform="rotate(-90 32 28)"/>
+  <rect x="22.5" y="45" width="5" height="7" rx="2.5" fill="rgba(255,255,255,0.82)"/>
+  <rect x="30.5" y="41" width="5" height="11" rx="2.5" fill="#ffffff"/>
+  <rect x="38.5" y="43.5" width="5" height="8.5" rx="2.5" fill="rgba(255,255,255,0.72)"/>
+</svg>

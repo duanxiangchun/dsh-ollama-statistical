@@ -1,0 +1,10 @@
+# dsh-ollama-statistical bundle patch.
+#
+# 只插入一行 Host loader entry，名字解析自 profile 的 node_modules
+# （`dsh plugin --profile <name> add dsh-ollama-statistical` 或
+#  `plugin_manager install_bundle` 安装的本地目录）。
+#
+# Client 半由 package.json 的 dsh.client 声明，不需要单独的 loader row。
+- insert:
+    - id: ollama-statistical
+      name: dsh-ollama-statistical
