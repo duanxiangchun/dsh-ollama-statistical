@@ -569,6 +569,14 @@ test('client：周额度 token 估算（已用 token ÷ 已用百分比）', () 
   assert.ok(real.remaining > 0 && real.remaining < real.total)
 })
 
+test('client：失败提示的忽略状态可读可写（无 localStorage 时安全降级）', () => {
+  assert.equal(typeof T.readIgnoredFailedCount, 'function', '__test 缺少 readIgnoredFailedCount')
+  assert.equal(typeof T.writeIgnoredFailedCount, 'function', '__test 缺少 writeIgnoredFailedCount')
+  // 测试沙箱里的 window 没有 localStorage：读返回 0，写不抛错
+  assert.equal(T.readIgnoredFailedCount(), 0)
+  assert.doesNotThrow(() => T.writeIgnoredFailedCount(25))
+})
+
 const loaded = loadClient()
 const T = loaded.exports.__test
 
