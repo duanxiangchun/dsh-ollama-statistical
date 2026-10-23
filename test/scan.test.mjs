@@ -29,6 +29,7 @@ test('summarizeTokenScan: covered + pending == candidates，partial 语义', () 
   assert.deepEqual(scan, {
     sessions: 773,
     candidates: 522,
+    skipped: 0,
     scanned: 58,
     fromCache: 100,
     covered: 158,
@@ -57,6 +58,7 @@ test('summarizeTokenScan: covered 超过 candidates 时裁剪，缺失字段归 
   assert.deepEqual(empty, {
     sessions: 0,
     candidates: 0,
+    skipped: 0,
     scanned: 0,
     fromCache: 0,
     covered: 0,
@@ -64,6 +66,13 @@ test('summarizeTokenScan: covered 超过 candidates 时裁剪，缺失字段归 
     elapsedMs: 0,
     partial: false,
   })
+})
+
+test('summarizeTokenScan: skipped（旧格式会话）不参与 partial 判定', () => {
+  const scan = summarizeTokenScan({ sessions: 775, candidates: 688, skipped: 25, covered: 688 })
+  assert.equal(scan.skipped, 25)
+  assert.equal(scan.pending, 0)
+  assert.equal(scan.partial, false, '只有 skipped 不应把结果标成不完整')
 })
 
 /* ------------------------------ runForegroundScan ----------------------------- */

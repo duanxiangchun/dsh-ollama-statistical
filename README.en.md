@@ -39,7 +39,9 @@ by **today**, **this week (starting Monday)** and a **custom date range**.
    filtered by `provider=ollama`, bucketed by **local-timezone** days (week starts Monday). So:
    > "Token usage" = the key's real token consumption through DSH; the official request count also includes other clients.
 
-   Both are shown side by side so they can be cross-checked.
+   Both are shown side by side so they can be cross-checked. **Archived sessions are included** (archiving is only a
+   workspace view flag); very old log formats (`migration-required`) must be opened once in DSH to migrate — the page
+   shows "N legacy-format sessions pending migration" in that case.
 
 ## 📦 Install
 
