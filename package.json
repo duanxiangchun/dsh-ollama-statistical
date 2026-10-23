@@ -69,5 +69,13 @@
     "zh",
     "en"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/duanxiangchun/dsh-ollama-statistical.git"
+  },
+  "homepage": "https://github.com/duanxiangchun/dsh-ollama-statistical#readme",
+  "bugs": {
+    "url": "https://github.com/duanxiangchun/dsh-ollama-statistical/issues"
+  }
 }
