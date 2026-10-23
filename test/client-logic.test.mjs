@@ -334,6 +334,22 @@ test('client：单供应商指标与模型榜都按所选时间范围求和', ()
   assert.equal(degradedRows[0].share, null)
 })
 
+test('client：缓存命中率 = 缓存读 / 输入（clamp 0~100，输入为 0 返回 null）', () => {
+  assert.equal(typeof T.cacheHitPercent, 'function', '__test 缺少 cacheHitPercent')
+  assert.equal(T.cacheHitPercent({ input: 100, cacheRead: 50 }), 50)
+  assert.equal(T.cacheHitPercent({ input: 1000, cacheRead: 999 }), 99.9)
+  assert.equal(T.cacheHitPercent({ input: 100, cacheRead: 150 }), 100, '超过 100% 时截断')
+  assert.equal(T.cacheHitPercent({ input: 0, cacheRead: 10 }), null, '输入为 0 时无意义')
+  assert.equal(T.cacheHitPercent(null), null)
+  // 与范围聚合联动：fixture 里 ollama 只有 input、没有缓存读 → 0%
+  const tokens = makeTokens()
+  const source = T.selectTokenSource(tokens, 'ollama')
+  const view = T.computeSourceRange(source, 'week')
+  assert.equal(T.cacheHitPercent(view.agg), 0)
+  // 真实形状：缓存读计入 input 时命中率 = cacheRead/input
+  assert.equal(T.cacheHitPercent({ input: 874039016 + 26470249, cacheRead: 874039016 }) > 96, true)
+})
+
 const loaded = loadClient()
 const T = loaded.exports.__test
 
