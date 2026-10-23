@@ -40,8 +40,11 @@ by **today**, **this week (starting Monday)** and a **custom date range**.
    > "Token usage" = the key's real token consumption through DSH; the official request count also includes other clients.
 
    Both are shown side by side so they can be cross-checked. **Archived sessions are included** (archiving is only a
-   workspace view flag); a few unreadable session logs are reported as "N sessions could not be read (not counted yet)" —
-   opening each session once in DSH triggers migration and the numbers fill in automatically (the plugin retries every 6 hours).
+   workspace view flag), and **deleting a session does not shrink the numbers**: the plugin keeps the deleted session's
+   per-day token contribution in a local ledger (`$DSH_HOME/storages/ollama-statistical/ledger.json`) and marks it as
+   "includes N deleted sessions". Delete that ledger file to clear it (then only existing sessions are counted). A few
+   unreadable session logs are reported as "N sessions could not be read"; opening each session once in DSH triggers
+   migration and the numbers fill in automatically (the plugin retries every 6 hours).
 
 ## 📦 Install
 
