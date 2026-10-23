@@ -547,6 +547,28 @@ test('client：底部横条沿用语义色（充足绿 / 70% 黄 / 90% 红）', 
   assert.equal(T.toneOf(90), 'error')
 })
 
+test('client：周额度 token 估算（已用 token ÷ 已用百分比）', () => {
+  assert.equal(typeof T.estimateQuotaTokens, 'function', '__test 缺少 estimateQuotaTokens')
+  // 已用 25%、本机 ollama 本周 2.5 亿 → 周额度 ≈ 10 亿，剩余 ≈ 7.5 亿
+  const est = T.estimateQuotaTokens(25, 250000000)
+  assert.equal(est.used, 250000000)
+  assert.equal(est.total, 1000000000)
+  assert.equal(est.remaining, 750000000)
+  // 已用超过 100% 时剩余不为负
+  const over = T.estimateQuotaTokens(120, 1200000)
+  assert.equal(over.total, 1000000)
+  assert.equal(over.remaining, 0)
+  // 无法推算的场景
+  assert.equal(T.estimateQuotaTokens(0, 1000), null)
+  assert.equal(T.estimateQuotaTokens(null, 1000), null)
+  assert.equal(T.estimateQuotaTokens(50, 0), null)
+  assert.equal(T.estimateQuotaTokens(50, null), null)
+  // 与真实量级联动：本周 91.39%、本机 ollama 约 15.9 亿 → 总量 ≈ 17.4 亿
+  const real = T.estimateQuotaTokens(91.39, 1587647134)
+  assert.ok(real.total > 1600000000 && real.total < 1800000000, '实际 ' + real.total)
+  assert.ok(real.remaining > 0 && real.remaining < real.total)
+})
+
 const loaded = loadClient()
 const T = loaded.exports.__test
 
