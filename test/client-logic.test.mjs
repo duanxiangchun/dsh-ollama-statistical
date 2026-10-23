@@ -334,20 +334,18 @@ test('client：单供应商指标与模型榜都按所选时间范围求和', ()
   assert.equal(degradedRows[0].share, null)
 })
 
-test('client：缓存命中率 = 缓存读 / 输入（clamp 0~100，输入为 0 返回 null）', () => {
+test('client：缓存命中率 = 缓存读 /（输入 + 缓存读），输入为 0 返回 null', () => {
   assert.equal(typeof T.cacheHitPercent, 'function', '__test 缺少 cacheHitPercent')
-  assert.equal(T.cacheHitPercent({ input: 100, cacheRead: 50 }), 50)
-  assert.equal(T.cacheHitPercent({ input: 1000, cacheRead: 999 }), 99.9)
-  assert.equal(T.cacheHitPercent({ input: 100, cacheRead: 150 }), 100, '超过 100% 时截断')
-  assert.equal(T.cacheHitPercent({ input: 0, cacheRead: 10 }), null, '输入为 0 时无意义')
+  // DSH 的 cacheReadTokens 单独计数，不含在 inputTokens 里 → 分母是二者之和
+  assert.equal(T.cacheHitPercent({ input: 100, cacheRead: 100 }), 50)
+  assert.equal(T.cacheHitPercent({ input: 0, cacheRead: 100 }), 100, '全部命中')
+  assert.equal(T.cacheHitPercent({ input: 100, cacheRead: 0 }), 0, '完全没有缓存')
+  assert.equal(T.cacheHitPercent({ input: 17, cacheRead: 983 }), 98.3)
+  assert.equal(T.cacheHitPercent({ input: 0, cacheRead: 0 }), null, '无 prompt token 时无意义')
   assert.equal(T.cacheHitPercent(null), null)
-  // 与范围聚合联动：fixture 里 ollama 只有 input、没有缓存读 → 0%
-  const tokens = makeTokens()
-  const source = T.selectTokenSource(tokens, 'ollama')
-  const view = T.computeSourceRange(source, 'week')
-  assert.equal(T.cacheHitPercent(view.agg), 0)
-  // 真实形状：缓存读计入 input 时命中率 = cacheRead/input
-  assert.equal(T.cacheHitPercent({ input: 874039016 + 26470249, cacheRead: 874039016 }) > 96, true)
+  // 与真实量级联动（今天：input 约 2780 万、cacheRead 约 9.03 亿 → 约 97%）
+  const real = T.cacheHitPercent({ input: 27807046, cacheRead: 902868712 })
+  assert.ok(real > 96 && real <= 100, '真实量级命中率应 ~97%，实际 ' + real)
 })
 
 const loaded = loadClient()
