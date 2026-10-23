@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 
 import {
   localDayKey,
+  localHourKey,
   maskKey,
   parseBalance,
   parseRetryAfterMs,
@@ -175,6 +176,26 @@ test('localDayKey: 本地日历日（含补零）', () => {
 
 test('localDayKey: 非法日期抛错', () => {
   assert.throws(() => localDayKey(new Date('nope')), /invalid date/)
+})
+
+/* ------------------------------ localHourKey ----------------------------- */
+
+test('localHourKey: 本地小时键（补零）', () => {
+  assert.equal(localHourKey(new Date(2026, 9, 23, 0, 0, 0)), '2026-10-23T00')
+  assert.equal(localHourKey(new Date(2026, 9, 23, 9, 5, 30)), '2026-10-23T09')
+  assert.equal(localHourKey(new Date(2026, 9, 23, 14, 30, 0)), '2026-10-23T14')
+})
+
+test('localHourKey: 边界 23:59:59 → 23、00:00:00 → 00（本地日历日不串）', () => {
+  assert.equal(localHourKey(new Date(2026, 9, 23, 23, 59, 59, 999)), '2026-10-23T23')
+  assert.equal(localHourKey(new Date(2026, 9, 23, 0, 0, 0, 0)), '2026-10-23T00')
+  // 跨日零点：前一天 23:59:59 与当天 00:00:00 分属两个日键
+  assert.equal(localHourKey(new Date(2026, 9, 22, 23, 59, 59).getTime()), '2026-10-22T23')
+  assert.equal(localHourKey(new Date(2026, 9, 23, 0, 0, 0).getTime()), '2026-10-23T00')
+})
+
+test('localHourKey: 非法日期抛错', () => {
+  assert.throws(() => localHourKey(new Date('nope')), /invalid hour key|invalid date/)
 })
 
 /* ---------------------------- parseRetryAfterMs --------------------------- */

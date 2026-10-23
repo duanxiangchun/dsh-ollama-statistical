@@ -139,6 +139,13 @@ function makeTokens() {
     weekStart: '2026-10-19',
     windowDays: 30,
     timeZone: 'Asia/Shanghai',
+    // 今天 24 小时桶：第 i 小时 total=i（用于小时图断言）
+    hours: Array.from({ length: 24 }, (_, hour) => ({
+      hour: String(hour).padStart(2, '0'),
+      total: hour,
+      requests: 1,
+      sessions: 1,
+    })),
     days,
     // 供应商分组：ollama 每天 total=index（完整桶，与 tokens.days 一致）；wb 全 0。
     providers: [
@@ -173,6 +180,12 @@ function makeTokens() {
           cacheWrite: 0,
           reasoning: 0,
           total: index,
+          requests: 1,
+          sessions: 1,
+        })),
+        hours: Array.from({ length: 24 }, (_, hour) => ({
+          hour: String(hour).padStart(2, '0'),
+          total: hour,
           requests: 1,
           sessions: 1,
         })),
@@ -346,6 +359,52 @@ test('client：缓存命中率 = 缓存读 /（输入 + 缓存读），输入为
   // 与真实量级联动（今天：input 约 2780 万、cacheRead 约 9.03 亿 → 约 97%）
   const real = T.cacheHitPercent({ input: 27807046, cacheRead: 902868712 })
   assert.ok(real > 96 && real <= 100, '真实量级命中率应 ~97%，实际 ' + real)
+})
+
+test('client：chartSeries 粒度自适应（今天→24 小时，本周/跨天→按天，缺小时桶回退天）', () => {
+  assert.equal(typeof T.chartSeries, 'function', '__test 缺少 chartSeries')
+  const tokens = makeTokens()
+
+  // 今天：小时模式，24 点，标签 00..23，合计 = 0+1+...+23
+  const hourly = T.chartSeries(tokens, 'all', 'today', tokens.today, tokens.today)
+  assert.equal(hourly.mode, 'hour')
+  assert.equal(hourly.points.length, 24)
+  assert.equal(hourly.points[0].label, '00')
+  assert.equal(hourly.points[23].label, '23')
+  assert.equal(hourly.points[5].total, 5)
+  const hourSum = hourly.points.reduce((a, p) => a + p.total, 0)
+  assert.equal(hourSum, (23 * 24) / 2)
+
+  // 单供应商今天：用 providers[].hours
+  const providerHourly = T.chartSeries(tokens, 'ollama', 'today', tokens.today, tokens.today)
+  assert.equal(providerHourly.mode, 'hour')
+  assert.equal(providerHourly.points.length, 24)
+  assert.equal(providerHourly.points[5].total, 5)
+
+  // 本周：天模式，5 点（10-19..10-23）
+  const daily = T.chartSeries(tokens, 'all', 'week', tokens.weekStart, tokens.today)
+  assert.equal(daily.mode, 'day')
+  assert.equal(daily.points.length, 5)
+  assert.equal(daily.points.reduce((a, p) => a + p.total, 0), 25 + 26 + 27 + 28 + 29)
+
+  // 自定义范围恰好是今天 → 小时模式
+  const customToday = T.chartSeries(tokens, 'all', 'custom', tokens.today, tokens.today)
+  assert.equal(customToday.mode, 'hour')
+
+  // 自定义跨天 → 天模式
+  const customSpan = T.chartSeries(tokens, 'all', 'custom', '2026-10-01', '2026-10-05')
+  assert.equal(customSpan.mode, 'day')
+  assert.equal(customSpan.points.length, 5)
+
+  // 小时桶缺失 → 回退天模式（今天只有 1 根柱），不崩
+  const noHours = { ...tokens, hours: undefined, providers: tokens.providers.map((p) => ({ ...p, hours: undefined })) }
+  const fallback = T.chartSeries(noHours, 'all', 'today', tokens.today, tokens.today)
+  assert.equal(fallback.mode, 'day')
+  assert.equal(fallback.points.length, 1)
+
+  // 长度不足 24 → 也回退天模式
+  const shortHours = { ...tokens, hours: tokens.hours.slice(0, 23) }
+  assert.equal(T.chartSeries(shortHours, 'all', 'today', tokens.today, tokens.today).mode, 'day')
 })
 
 const loaded = loadClient()

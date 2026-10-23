@@ -164,13 +164,15 @@ test('aggregateSessionEvents: 全部供应商统计、按 provider/model 折叠�
   assert.equal(providerModels['(未知)']['(未知)'].total, 2)
 })
 
-test('aggregateSessionEvents: 非法输入不抛错（v3 折叠形状）', () => {
+test('aggregateSessionEvents: 非法输入不抛错（v4 折叠形状）', () => {
   const empty = {
     requests: 0,
     perDay: {},
     perDayProvider: {},
     perDayModel: {},
     perDayProviderModel: {},
+    perHour: {},
+    perHourProvider: {},
   }
   assert.deepEqual(aggregateSessionEvents(null), empty)
   assert.deepEqual(aggregateSessionEvents([]), empty)
@@ -194,6 +196,37 @@ test('aggregateSessionEvents: provider/model 空白归到 (未知)，负数 toke
   const providerModels = fold.perDayProviderModel['2026-10-23']
   assert.deepEqual(Object.keys(providerModels['(未知)']), ['(未知)'])
   assert.equal(providerModels['(未知)']['(未知)'].total, 3)
+})
+
+test('aggregateSessionEvents: 本地小时归桶（00:00:00→00 / 23:59:59→23）与多 provider', () => {
+  const events = [
+    // 今天 00:00:00 → 00 点
+    assistantEvent(new Date(2026, 9, 23, 0, 0, 0).getTime(), { inputTokens: 1, outputTokens: 1 }, OLLAMA_SOURCE),
+    // 今天 23:59:59 → 23 点（同一小时两个 provider 的调用）
+    assistantEvent(new Date(2026, 9, 23, 23, 59, 59).getTime(), { inputTokens: 2, outputTokens: 2 }, WB_SOURCE),
+    assistantEvent(new Date(2026, 9, 23, 23, 0, 1).getTime(), { inputTokens: 3, outputTokens: 3 }, WB_SOURCE),
+    // 昨天 10 点：也要进 fold 的 perHour（聚合时只取今天）
+    assistantEvent(new Date(2026, 9, 22, 10, 0, 0).getTime(), { inputTokens: 4, outputTokens: 4 }, OLLAMA_SOURCE),
+  ]
+  const fold = aggregateSessionEvents(events)
+  assert.deepEqual(Object.keys(fold.perHour).sort(), ['2026-10-22T10', '2026-10-23T00', '2026-10-23T23'])
+  assert.equal(fold.perHour['2026-10-23T00'].total, 2)
+  assert.equal(fold.perHour['2026-10-23T00'].requests, 1)
+  assert.equal(fold.perHour['2026-10-23T23'].total, 10, '4 + 6')
+  assert.equal(fold.perHour['2026-10-23T23'].requests, 2)
+  assert.equal(fold.perHour['2026-10-22T10'].total, 8)
+
+  const providers = fold.perHourProvider['2026-10-23T23']
+  assert.deepEqual(Object.keys(providers), ['wb'])
+  assert.equal(providers.wb.total, 10)
+  assert.equal(fold.perHourProvider['2026-10-23T00'].ollama.total, 2)
+  assert.equal(fold.perHourProvider['2026-10-22T10'].ollama.total, 8)
+  // 小时桶与日桶之和一致（同一天）
+  const day23 = fold.perDay['2026-10-23']
+  const hours23 = Object.entries(fold.perHour)
+    .filter(([key]) => key.startsWith('2026-10-23T'))
+    .reduce((total, [, bucket]) => total + bucket.total, 0)
+  assert.equal(hours23, day23.total)
 })
 
 /* ------------------------------- fillTokenDays ------------------------------ */
@@ -242,7 +275,7 @@ test('fillTokenDays: 传入 Map 也可以', () => {
 
 const B = (total, requests = 1) => ({ ...EMPTY_BUCKET, total, requests })
 
-/** 两个会话：s1 同时用 ollama+wb（另有窗口外日期），s2 只用 wb。 */
+/** 两个会话：s1 同时用 ollama+wb（另有窗口外日期），s2 只用 wb；今天数据分布在 10/11 点。 */
 function multiProviderSessions() {
   return [
     {
@@ -265,6 +298,17 @@ function multiProviderSessions() {
           '2026-10-22': { ollama: { m1: B(7, 1) } },
           '2026-09-01': { ollama: { m1: B(700, 5) } }, // 窗口外
         },
+        // 今天：10 点 ollama(100/3)，11 点 wb(40/1)；22 日 9 点是历史小时（不应输出）
+        perHour: {
+          '2026-10-23T10': B(100, 3),
+          '2026-10-23T11': B(40, 1),
+          '2026-10-22T09': B(7, 1),
+        },
+        perHourProvider: {
+          '2026-10-23T10': { ollama: B(100, 3) },
+          '2026-10-23T11': { wb: B(40, 1) },
+          '2026-10-22T09': { ollama: B(7, 1) },
+        },
       },
     },
     {
@@ -275,6 +319,8 @@ function multiProviderSessions() {
         perDayProvider: { '2026-10-23': { wb: B(5, 1) } },
         perDayModel: {},
         perDayProviderModel: { '2026-10-23': { wb: { wm2: B(5, 1) } } },
+        perHour: { '2026-10-23T11': B(5, 1) },
+        perHourProvider: { '2026-10-23T11': { wb: B(5, 1) } },
       },
     },
   ]
@@ -628,6 +674,95 @@ test('聚合自洽: sum(provider.days)=provider.total / sum(model.days)=model.to
   assert.equal(models.reduce((total, model) => total + model.total, 0), sumDays)
 })
 
+test('aggregateTokenStats: 今天 24 小时桶（hour 00..23、缺小时补 0、历史日期不输出）', () => {
+  const { days, providers, hours } = aggregateTokenStats(multiProviderSessions(), {
+    today: '2026-10-23',
+    windowDays: 30,
+  })
+  const expectedHours = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'))
+  assert.equal(hours.length, 24)
+  assert.deepEqual(
+    hours.map((item) => item.hour),
+    expectedHours,
+  )
+  for (const item of hours) {
+    assert.deepEqual(Object.keys(item).sort(), ['hour', 'requests', 'sessions', 'total'])
+    assert.ok([item.total, item.requests, item.sessions].every((value) => typeof value === 'number' && value >= 0))
+  }
+  // 10 点：s1 ollama 100/3；11 点：s1 wb 40 + s2 wb 5 = 45/2，两个会话
+  assert.deepEqual(hours.find((item) => item.hour === '10'), {
+    hour: '10',
+    total: 100,
+    requests: 3,
+    sessions: 1,
+  })
+  assert.deepEqual(hours.find((item) => item.hour === '11'), {
+    hour: '11',
+    total: 45,
+    requests: 2,
+    sessions: 2,
+  })
+  // 22 日 09 点的小时数据不能进「今天」
+  assert.equal(hours.find((item) => item.hour === '09').total, 0)
+  assert.ok(
+    hours
+      .filter((item) => item.hour !== '10' && item.hour !== '11')
+      .every((item) => item.total === 0 && item.requests === 0 && item.sessions === 0),
+  )
+
+  // 恒等式：今天小时之和 = 今天日桶
+  const todayBucket = days[days.length - 1]
+  assert.equal(
+    hours.reduce((total, item) => total + item.total, 0),
+    todayBucket.total,
+  )
+  assert.equal(
+    hours.reduce((total, item) => total + item.requests, 0),
+    todayBucket.requests,
+  )
+
+  for (const provider of providers) {
+    assert.equal(provider.hours.length, 24, provider.provider)
+    assert.deepEqual(
+      provider.hours.map((item) => item.hour),
+      expectedHours,
+    )
+    const providerToday = provider.days[provider.days.length - 1]
+    assert.equal(
+      provider.hours.reduce((total, item) => total + item.total, 0),
+      providerToday.total,
+      provider.provider + ' hours 合计必须等于今天日桶',
+    )
+    assert.equal(
+      provider.hours.reduce((total, item) => total + item.requests, 0),
+      providerToday.requests,
+    )
+  }
+  const ollama = providers.find((item) => item.provider === 'ollama')
+  assert.deepEqual(ollama.hours.find((item) => item.hour === '10'), {
+    hour: '10',
+    total: 100,
+    requests: 3,
+    sessions: 1,
+  })
+  const wb = providers.find((item) => item.provider === 'wb')
+  assert.deepEqual(wb.hours.find((item) => item.hour === '11'), {
+    hour: '11',
+    total: 45,
+    requests: 2,
+    sessions: 2,
+  })
+  assert.equal(wb.hours.find((item) => item.hour === '10').total, 0, 'wb 10 点没有调用')
+})
+
+test('aggregateTokenStats: 空输入时 hours 也是 24 项全 0', () => {
+  const { hours } = aggregateTokenStats([], { today: '2026-10-23', windowDays: 30 })
+  assert.equal(hours.length, 24)
+  assert.ok(hours.every((item) => item.total === 0 && item.requests === 0 && item.sessions === 0))
+  assert.deepEqual(hours[0], { hour: '00', total: 0, requests: 0, sessions: 0 })
+  assert.deepEqual(hours[23], { hour: '23', total: 0, requests: 0, sessions: 0 })
+})
+
 test('aggregateTokenStats: provider/model 缺失的记录归到 (未知)', () => {
   const sessions = [
     {
@@ -656,18 +791,28 @@ test('aggregateTokenStats: 旧版 fold（无 perDayProvider/perDayProviderModel�
       },
     },
   ]
-  const { days, providers, models } = aggregateTokenStats(sessions, { today: '2026-10-23', windowDays: 30 })
+  const { days, providers, models, hours } = aggregateTokenStats(sessions, {
+    today: '2026-10-23',
+    windowDays: 30,
+  })
   assert.equal(days[29].total, 9, '合计日桶仍然可用')
   assert.deepEqual(providers, [])
   assert.deepEqual(models, [])
+  assert.equal(hours.length, 24, '旧 fold 没有 perHour → 今天小时桶全 0')
+  assert.ok(hours.every((item) => item.total === 0))
 })
 
-test('aggregateTokenStats: 空输入返回全 0 的 30 天、空 providers/models', () => {
-  const { days, providers, models } = aggregateTokenStats([], { today: '2026-10-23', windowDays: 30 })
+test('aggregateTokenStats: 空输入返回全 0 的 30 天、24 小时、空 providers/models', () => {
+  const { days, providers, models, hours } = aggregateTokenStats([], {
+    today: '2026-10-23',
+    windowDays: 30,
+  })
   assert.equal(days.length, 30)
   assert.ok(days.every((day) => day.total === 0 && day.requests === 0 && day.sessions === 0))
   assert.deepEqual(providers, [])
   assert.deepEqual(models, [])
+  assert.equal(hours.length, 24)
+  assert.deepEqual(hours[0], { hour: '00', total: 0, requests: 0, sessions: 0 })
 })
 
 test('emptyTokenStats: sessionQuery 不可用时的兜底形状（scope/providers/30 天全 0）', () => {
@@ -682,6 +827,9 @@ test('emptyTokenStats: sessionQuery 不可用时的兜底形状（scope/provider
   assert.equal(stats.days.length, 30)
   assert.equal(stats.days[29].date, '2026-10-23')
   assert.ok(stats.days.every((day) => day.total === 0 && day.requests === 0 && day.sessions === 0))
+  assert.equal(stats.hours.length, 24)
+  assert.deepEqual(stats.hours[0], { hour: '00', total: 0, requests: 0, sessions: 0 })
+  assert.deepEqual(stats.hours[23], { hour: '23', total: 0, requests: 0, sessions: 0 })
   assert.deepEqual(stats.providers, [])
   assert.deepEqual(stats.models, [])
   assert.deepEqual(stats.scan, {

@@ -35,7 +35,7 @@ const bucket = (total, requests = 1) => ({
   requests,
 })
 
-/** 构造与 aggregateSessionEvents 同形状的 fold（日 / 供应商 / 模型 / 供应商-模型）。 */
+/** 构造与 aggregateSessionEvents 同形状的 fold（日 / 供应商 / 模型 / 供应商-模型 / 小时）。 */
 function foldWith(day, total, requests = 1, model = 'm1', provider = 'p1') {
   const value = bucket(total, requests)
   return {
@@ -44,6 +44,8 @@ function foldWith(day, total, requests = 1, model = 'm1', provider = 'p1') {
     perDayProvider: { [day]: { [provider]: value } },
     perDayModel: { [day]: { [model]: value } },
     perDayProviderModel: { [day]: { [provider]: { [model]: value } } },
+    perHour: { [day + 'T09']: value },
+    perHourProvider: { [day + 'T09']: { [provider]: value } },
   }
 }
 
@@ -328,52 +330,54 @@ function emptyPersistRt() {
   }
 }
 
-test('loadPersisted: token-cache v2 / ledger v1 被丢弃（冷重建），v3 / v2 才加载', async () => {
+test('loadPersisted: token-cache v3 / ledger v2 被丢弃（冷重建），v4 / v3 才加载', async () => {
   await withTempDshHome(async (home) => {
     const dir = join(home, 'storages', 'ollama-statistical')
     mkdirSync(dir, { recursive: true })
-    const foldV3 = foldWith(WINDOW_DAY, 10)
-    // 旧版本：token-cache v2、ledger v1
+    const foldV4 = foldWith(WINDOW_DAY, 10)
+    assert.ok(foldV4.perHour, 'fold 夹具包含 v4 的 perHour')
+    // 旧版本：token-cache v3、ledger v2（缺少 perHour，必须丢弃）
     writeFileSync(
       join(dir, 'token-cache.json'),
       JSON.stringify({
-        version: 2,
-        sessions: { s1: { createdAt: 5000, fold: foldV3 } },
+        version: 3,
+        sessions: { s1: { createdAt: 5000, fold: foldV4 } },
         failures: {},
       }),
     )
     writeFileSync(
       join(dir, 'ledger.json'),
-      JSON.stringify({ version: 1, known: { s1: { createdAt: 5000 } }, retired: {} }),
+      JSON.stringify({ version: 2, known: { s1: { createdAt: 5000 } }, retired: {} }),
     )
     const oldRt = emptyPersistRt()
     loadPersisted(oldRt)
-    assert.equal(oldRt.tokenCache.size, 0, 'v2 token-cache 必须丢弃')
-    assert.equal(oldRt.ledger.known.size, 0, 'v1 ledger 必须丢弃')
+    assert.equal(oldRt.tokenCache.size, 0, 'v3 token-cache 必须丢弃')
+    assert.equal(oldRt.ledger.known.size, 0, 'v2 ledger 必须丢弃')
 
-    // 当前版本：token-cache v3、ledger v2
+    // 当前版本：token-cache v4、ledger v3
     writeFileSync(
       join(dir, 'token-cache.json'),
       JSON.stringify({
-        version: 3,
-        sessions: { s1: { createdAt: 5000, fold: foldV3 } },
+        version: 4,
+        sessions: { s1: { createdAt: 5000, fold: foldV4 } },
         failures: { bad: { at: Date.now(), message: 'boom' } },
       }),
     )
     writeFileSync(
       join(dir, 'ledger.json'),
       JSON.stringify({
-        version: 2,
+        version: 3,
         known: { s1: { createdAt: 5000 } },
-        retired: { gone: { createdAt: 5000, fold: foldV3 } },
+        retired: { gone: { createdAt: 5000, fold: foldV4 } },
       }),
     )
     const newRt = emptyPersistRt()
     loadPersisted(newRt)
-    assert.equal(newRt.tokenCache.size, 1, 'v3 token-cache 正常加载')
+    assert.equal(newRt.tokenCache.size, 1, 'v4 token-cache 正常加载')
+    assert.equal(newRt.tokenCache.get('s1').fold.perHour[WINDOW_DAY + 'T09'].total, 10)
     assert.equal(newRt.scanFailures.size, 1, 'failures 随缓存加载')
     assert.equal(newRt.ledger.known.size, 1)
     assert.equal(newRt.ledger.retired.size, 1)
-    assert.equal(newRt.ledger.retired.get('gone').fold.perDayProviderModel[WINDOW_DAY].p1.m1.total, 10)
+    assert.equal(newRt.ledger.retired.get('gone').fold.perHourProvider[WINDOW_DAY + 'T09'].p1.total, 10)
   })
 })
