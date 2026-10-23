@@ -17,6 +17,7 @@ import {
   aggregateTokenStats,
   buildWarmStats,
   loadLedger,
+  loadPersisted,
   persistLedger,
   reconcileLedger,
   summarizeTokenScan,
@@ -34,12 +35,15 @@ const bucket = (total, requests = 1) => ({
   requests,
 })
 
-/** 构造与 aggregateSessionEvents 同形状的 fold（日 + 日模型）。 */
-function foldWith(day, total, requests = 1, model = 'm1') {
+/** 构造与 aggregateSessionEvents 同形状的 fold（日 / 供应商 / 模型 / 供应商-模型）。 */
+function foldWith(day, total, requests = 1, model = 'm1', provider = 'p1') {
+  const value = bucket(total, requests)
   return {
     requests,
-    perDay: { [day]: bucket(total, requests) },
-    perDayModel: { [day]: { [model]: bucket(total, requests) } },
+    perDay: { [day]: value },
+    perDayProvider: { [day]: { [provider]: value } },
+    perDayModel: { [day]: { [model]: value } },
+    perDayProviderModel: { [day]: { [provider]: { [model]: value } } },
   }
 }
 
@@ -297,4 +301,79 @@ test('buildWarmStats: warm 期间也并入 retired，且不与 covered 双计', 
   assert.equal(stats.scan.retired, 1, '只统计真正并入的墓碑数')
   const total = stats.days.reduce((sum, day) => sum + day.total, 0)
   assert.equal(total, 150, 'covered 100 + retired 50，重叠的 999 不计')
+  // warm 期间 providers 也要正确并入 retired（不能掉）
+  assert.equal(stats.scope, 'all-providers')
+  assert.equal(stats.providers.length, 1)
+  assert.equal(stats.providers[0].provider, 'p1')
+  assert.equal(stats.providers[0].total, 150)
+  assert.equal(
+    stats.providers[0].models.reduce((sum, model) => sum + model.total, 0),
+    150,
+  )
+  assert.equal(
+    stats.providers[0].days.reduce((sum, day) => sum + day.total, 0),
+    150,
+  )
+})
+
+/* -------------------- 旧版本缓存 / 账本在加载时被丢弃 -------------------- */
+
+function emptyPersistRt() {
+  return {
+    state: { version: 1, manualKey: null, lastSnapshot: null, lastSnapshotAt: null },
+    tokenCache: new Map(),
+    scanFailures: new Map(),
+    ledger: { known: new Map(), retired: new Map() },
+    ledgerDirty: false,
+  }
+}
+
+test('loadPersisted: token-cache v2 / ledger v1 被丢弃（冷重建），v3 / v2 才加载', async () => {
+  await withTempDshHome(async (home) => {
+    const dir = join(home, 'storages', 'ollama-statistical')
+    mkdirSync(dir, { recursive: true })
+    const foldV3 = foldWith(WINDOW_DAY, 10)
+    // 旧版本：token-cache v2、ledger v1
+    writeFileSync(
+      join(dir, 'token-cache.json'),
+      JSON.stringify({
+        version: 2,
+        sessions: { s1: { createdAt: 5000, fold: foldV3 } },
+        failures: {},
+      }),
+    )
+    writeFileSync(
+      join(dir, 'ledger.json'),
+      JSON.stringify({ version: 1, known: { s1: { createdAt: 5000 } }, retired: {} }),
+    )
+    const oldRt = emptyPersistRt()
+    loadPersisted(oldRt)
+    assert.equal(oldRt.tokenCache.size, 0, 'v2 token-cache 必须丢弃')
+    assert.equal(oldRt.ledger.known.size, 0, 'v1 ledger 必须丢弃')
+
+    // 当前版本：token-cache v3、ledger v2
+    writeFileSync(
+      join(dir, 'token-cache.json'),
+      JSON.stringify({
+        version: 3,
+        sessions: { s1: { createdAt: 5000, fold: foldV3 } },
+        failures: { bad: { at: Date.now(), message: 'boom' } },
+      }),
+    )
+    writeFileSync(
+      join(dir, 'ledger.json'),
+      JSON.stringify({
+        version: 2,
+        known: { s1: { createdAt: 5000 } },
+        retired: { gone: { createdAt: 5000, fold: foldV3 } },
+      }),
+    )
+    const newRt = emptyPersistRt()
+    loadPersisted(newRt)
+    assert.equal(newRt.tokenCache.size, 1, 'v3 token-cache 正常加载')
+    assert.equal(newRt.scanFailures.size, 1, 'failures 随缓存加载')
+    assert.equal(newRt.ledger.known.size, 1)
+    assert.equal(newRt.ledger.retired.size, 1)
+    assert.equal(newRt.ledger.retired.get('gone').fold.perDayProviderModel[WINDOW_DAY].p1.m1.total, 10)
+  })
 })

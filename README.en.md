@@ -2,11 +2,11 @@
 
 # dsh-ollama-statistical
 
-**Ollama Cloud limits + token usage statistics · DeepSeek Harness plugin**
+**Ollama limits + whole-DSH token statistics · DeepSeek Harness plugin**
 
 A dedicated sidebar statistics page plus persistent sidebar bars:
-5-hour session limit, weekly limit, and the token usage of the configured API key
-by **today**, **this week (starting Monday)** and a **custom date range**.
+Ollama Cloud 5-hour session and weekly limits plus official request counts, and
+**whole-DSH token usage broken down by provider** by **today**, **this week (starting Monday)** and a **custom date range**.
 
 [中文](README.md) · [MIT](LICENSE)
 
@@ -18,9 +18,9 @@ by **today**, **this week (starting Monday)** and a **custom date range**.
 
 | Area | What you get |
 | --- | --- |
-| **Limits** | Ollama Cloud **5-hour session limit** and **weekly limit**: used/remaining percent, progress bar and reset countdown (official `GET /api/balance`) |
-| **Token statistics** | Real token consumption of the key inside DSH with three views: **today**, **this week (Monday → today)**, **custom range**. Totals, input/output/cached tokens, requests, active days, sessions, daily bar chart and per-model breakdown |
-| **Official usage** | Request counts for the last 24 hours / 7 days / 30 days from the official `GET /api/usage`, with sparklines |
+| **Ollama limits** | Ollama Cloud **5-hour session limit** and **weekly limit**: used/remaining percent, progress bar and reset countdown (official `GET /api/balance`) |
+| **Token statistics (all providers)** | **Whole-DSH token usage grouped by provider**: provider filter chips, per-provider share rows, merged or per-provider model lists, and three views: **today**, **this week (Monday → today)**, **custom range**. Totals, input/output/cached tokens, requests, active days, sessions and a daily bar chart |
+| **Ollama official request counts** | Request counts for the last 24 hours / 7 days / 30 days from the official `GET /api/usage`, with sparklines |
 | **Sidebar bars** | Always-visible session (5h, light violet) and weekly (dark violet) bars with reset countdown in the tooltip, refreshed every 60 s |
 | **Statistics page** | Left sidebar panel icon opens the full page; light/dark themes, narrow-screen layout, keyboard accessible |
 | **No configuration** | Reuses the DSH-configured `OLLAMA_API_KEY` (credential store → environment → legacy Ollama CLI login); a key can also be pasted in the page |
@@ -36,10 +36,9 @@ by **today**, **this week (starting Monday)** and a **custom date range**.
    not a missing feature). Any token/usage_usd fields that appear later are passed through.
    Official data is bucketed by **UTC** hour/day and covers **all clients** of the account, not only this machine.
 3. **Token statistics** are computed from **local DSH session logs** (`usage` on `assistant/message` events)
-   filtered by `provider=ollama`, bucketed by **local-timezone** days (week starts Monday). So:
-   > "Token usage" = the key's real token consumption through DSH; the official request count also includes other clients.
-
-   Both are shown side by side so they can be cross-checked. **Archived sessions are included** (archiving is only a
+   **across all providers** (grouped by the event's `provider`/`model`, i.e. the ollama / sub / mgdaas / wb … ids configured in DSH),
+   bucketed by **local-timezone** days (week starts Monday). Ollama limits and official request counts still target only the
+   `OLLAMA_API_KEY` account; the official request count also includes other clients, so the two are shown side by side for reference. **Archived sessions are included** (archiving is only a
    workspace view flag), and **deleting a session does not shrink the numbers**: the plugin keeps the deleted session's
    per-day token contribution in a local ledger (`$DSH_HOME/storages/ollama-statistical/ledger.json`) and marks it as
    "includes N deleted sessions". Delete that ledger file to clear it (then only existing sessions are counted). A few
