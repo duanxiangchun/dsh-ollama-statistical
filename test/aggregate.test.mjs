@@ -361,6 +361,7 @@ test('emptyTokenStats: sessionQuery 不可用时的兜底形状（30 天全 0、
     scanned: 0,
     fromCache: 0,
     covered: 0,
+    failed: 0,
     pending: 0,
     elapsedMs: 0,
     partial: false,
