@@ -23,7 +23,7 @@ Ollama Cloud 5-hour session and weekly limits plus official request counts, and
 | --- | --- |
 | **Ollama limits** | Ollama Cloud **5-hour session limit** and **weekly limit**: used/remaining percent, progress bar and reset countdown (official `GET /api/balance`) ; the weekly quota is also **estimated in tokens** (local Ollama token usage ÷ official used percent) |
 | **Token statistics (all providers)** | **Whole-DSH token usage grouped by provider**: provider filter chips (with per-provider range totals), merged or per-provider model lists, and three views: **today**, **this week (Monday → today)**, **custom range**. **Every metric (totals, input/output/cached tokens (cache-write/reasoning cards appear only when the provider reports them), requests, active days, sessions, provider shares and model lists) is scoped to the selected range**, plus a multi-series SVG trend chart (Input / Output / Cache Read / cache hit rate with a right-hand percent axis; 24 hourly points for today, daily points for week/custom) |
-| **Ollama official request counts** | Request counts for the last 24 hours / 7 days / 30 days from the official `GET /api/usage`, with sparklines |
+| **Ollama official request counts** | Request counts for **today** / **this week (UTC Monday onward)** / **this month (UTC 1st onward)** from the official `GET /api/usage`, with sparklines (day/week/month re-filtered from official hour/day buckets at UTC day boundaries, matching the official quota cycles) |
 | **Sidebar bars** | Always-visible session (5h, amber) and weekly (teal-green) bars with reset countdown in the tooltip, refreshed every 60 s |
 | **Statistics page** | Left sidebar panel icon opens the full page; light/dark themes, narrow-screen layout, keyboard accessible |
 | **No configuration** | Reuses the DSH-configured `OLLAMA_API_KEY` (credential store → environment → legacy Ollama CLI login); a key can also be pasted or replaced in the page (the “Change key” button next to the limits header) |
@@ -38,6 +38,10 @@ Ollama Cloud 5-hour session and weekly limits plus official request counts, and
    For **legacy plans the official API only returns `request_count`, no token figures** (an API limitation,
    not a missing feature). Any token/usage_usd fields that appear later are passed through.
    Official data is bucketed by **UTC** hour/day and covers **all clients** of the account, not only this machine.
+   The API only offers rolling 24h/7d/30d windows; the plugin re-filters their hour/day buckets to
+   **today / this week (UTC Monday onward) / this month (UTC 1st onward) → now** — exactly aligned with
+   the official buckets, and the official weekly quota resets at UTC Monday 00:00, so "this week"
+   is the current official quota cycle.
 3. **Token statistics** are computed from **local DSH session logs** (`usage` on `assistant/message` events)
    **across all providers** (grouped by the event's `provider`/`model`, i.e. the ollama / sub / mgdaas / wb … ids configured in DSH),
    bucketed by **local-timezone** days (week starts Monday). Ollama limits and official request counts still target only the
@@ -68,12 +72,16 @@ immediately. An Ollama statistics icon appears in the left sidebar and usage bar
 2. If no key is found, create one at [ollama.com/settings/keys](https://ollama.com/settings/keys) and paste it,
    or configure `OLLAMA_API_KEY` for the Ollama provider in DSH settings (the plugin reuses it automatically);
 3. Use the `Today` / `This week` / `Custom` tabs for token statistics;
-4. `Refresh` forces a refetch (official API allows 10 req/min; `snapshot` has a 60 s cache and `refresh` bypasses it).
+4. Opening the page is always instant: `snapshot` serves stale-while-revalidate — any existing snapshot
+   (including the on-disk one after a restart) is returned immediately while a background refetch refreshes
+   it (the page picks up new data in ~10 s). `Refresh` forces a refetch (15 s throttle; official API allows
+   10 req/min).
 
 > **First run**: the plugin scans the last 30 days of local DSH session logs in background rounds; the page shows
 > "filling in historical sessions x/y" and 500+ sessions converge in about 2–4 minutes (one background round has a
 > 180 s budget and continues in the next round; `snapshot` keeps returning in milliseconds meanwhile). Later cold
-> starts are instant from the local cache; only new sessions need scanning.
+> starts are instant from the local cache (everyday opens too: SWR returns the existing snapshot
+> immediately while the background refetches); only new sessions need scanning.
 
 ## 🔒 Privacy
 

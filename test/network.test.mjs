@@ -180,6 +180,43 @@ test('collectOfficial: 429 时四个请求都降级并写入冷却窗口', async
   )
 })
 
+test('collectOfficial: 24h/7d/30d 按今天/本周/本月窗口重过滤（now 可注入）', async () => {
+  await withFetch(
+    async (url) => {
+      if (url === URL_BALANCE) return fakeResponseFor(url)
+      const is24h = url.includes('24h')
+      return new Response(
+        JSON.stringify({
+          range: is24h ? '24h' : url.includes('7d') ? '7d' : '30d',
+          granularity: is24h ? 'hour' : 'day',
+          totals: { request_count: 100 },
+          buckets: is24h
+            ? [
+                { from: '2026-10-24T23:00:00Z', until: '2026-10-25T00:00:00Z', request_count: 30 },
+                { from: '2026-10-25T00:00:00Z', until: '2026-10-25T01:00:00Z', request_count: 55 },
+                { from: '2026-10-25T11:00:00Z', until: '2026-10-25T12:00:00Z', partial: true, request_count: 15 },
+              ]
+            : [
+                { from: '2026-10-18T00:00:00Z', until: '2026-10-19T00:00:00Z', request_count: 40 },
+                { from: '2026-10-19T00:00:00Z', until: '2026-10-20T00:00:00Z', request_count: 60 },
+              ],
+        }),
+        { status: 200 },
+      )
+    },
+    async () => {
+      const rt = { rateLimitedUntil: 0 }
+      // 锚定 UTC 2026-10-25（周日）12:00：今天 = 10-25，本周 = 10-19..10-25，本月 = 10-01..10-25。
+      const result = await collectOfficial(rt, 'secret', new Date(Date.UTC(2026, 9, 25, 12)))
+      assert.equal(result.official.range24h.requestCount, 70, '今天 = UTC 10-25，只计 55+15（10-24 的桶不计）')
+      assert.equal(result.official.range24h.from, '2026-10-25T00:00:00Z')
+      assert.equal(result.official.range7d.requestCount, 60, '本周 = UTC 10-19..10-25，只计 10-19 的桶（10-18 属上周）')
+      assert.equal(result.official.range7d.from, '2026-10-19T00:00:00Z')
+      assert.equal(result.official.range30d.requestCount, 100, '本月 = UTC 10-01..10-25，10-18 与 10-19 都在内（40+60）')
+    },
+  )
+})
+
 test('collectOfficial: 单 range 网络失败只降级该 range，不影响其他', async () => {
   await withFetch(
     async (url) => {

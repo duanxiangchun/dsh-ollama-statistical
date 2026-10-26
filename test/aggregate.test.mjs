@@ -13,6 +13,10 @@ import {
   emptyLimits,
   emptyTokenStats,
   fillTokenDays,
+  utcDateKeysFrom,
+  utcDayKey,
+  utcMonthStartDate,
+  utcWeekStartDate,
 } from '../lib/index.js'
 
 const at = (year, monthIndex, day, hour = 12) => new Date(year, monthIndex, day, hour).getTime()
@@ -101,6 +105,100 @@ test('aggregateOfficialUsage: totals 缺 request_count 时回退为 buckets 求�
 test('aggregateOfficialUsage: 异常响应体抛错', () => {
   assert.throws(() => aggregateOfficialUsage('nope', '24h'), /不是合法 JSON/)
   assert.throws(() => aggregateOfficialUsage([], '24h'), /格式异常/)
+})
+
+test('aggregateOfficialUsage: windowDates 过滤出「今天」（24h 小时桶按 UTC 当日过滤）', () => {
+  const usage = {
+    range: '24h',
+    granularity: 'hour',
+    from: '2026-10-25T22:00:00Z',
+    until: '2026-10-26T02:08:49.099929399Z',
+    totals: { request_count: 100 },
+    buckets: [
+      { from: '2026-10-25T22:00:00Z', until: '2026-10-25T23:00:00Z', request_count: 30 },
+      { from: '2026-10-25T23:00:00Z', until: '2026-10-26T00:00:00Z', request_count: 12 },
+      { from: '2026-10-26T00:00:00Z', until: '2026-10-26T01:00:00Z', request_count: 55 },
+      { from: '2026-10-26T02:00:00Z', until: '2026-10-26T02:08:49.099929399Z', partial: true, request_count: 15 },
+    ],
+  }
+  const result = aggregateOfficialUsage(usage, '24h', new Set(['2026-10-26']))
+  assert.equal(result.requestCount, 70, '55+15：UTC 昨日的小时桶不计入今天')
+  assert.equal(result.buckets.length, 2)
+  assert.equal(result.from, '2026-10-26T00:00:00Z', 'from 改为今天第一个桶')
+  assert.equal(result.until, '2026-10-26T02:08:49.099929399Z')
+  assert.equal(result.buckets[1].partial, true)
+  assert.equal(result.range, '24h', 'range 字段仍是 API 标识')
+})
+
+test('aggregateOfficialUsage: windowDates 过滤出「本周」并重算 requestCount/from/until', () => {
+  const usage = {
+    range: '7d',
+    granularity: 'day',
+    from: '2026-10-18T00:00:00Z',
+    until: '2026-10-25T08:08:49.099929399Z',
+    totals: { request_count: 96 },
+    buckets: [
+      { from: '2026-10-18T00:00:00Z', until: '2026-10-19T00:00:00Z', request_count: 5 },
+      { from: '2026-10-19T00:00:00Z', until: '2026-10-20T00:00:00Z', request_count: 7 },
+      { from: '2026-10-20T00:00:00Z', until: '2026-10-21T00:00:00Z', request_count: 9 },
+      { from: '2026-10-25T00:00:00Z', until: '2026-10-25T08:08:49.099929399Z', partial: true, request_count: 19 },
+    ],
+  }
+  const week = new Set(['2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25'])
+  const result = aggregateOfficialUsage(usage, '7d', week)
+  assert.equal(result.requestCount, 35, '7+9+19：忽略 totals=96 与窗口外的 10-18 桶')
+  assert.equal(result.buckets.length, 3)
+  assert.equal(result.from, '2026-10-19T00:00:00Z', 'from 改为窗口内首桶')
+  assert.equal(result.until, '2026-10-25T08:08:49.099929399Z', 'until 为窗口内末桶（纳秒原样透传）')
+  assert.equal(result.buckets[2].partial, true)
+  assert.equal(result.range, '7d', 'range 字段仍是 API 标识')
+  assert.equal(result.tokens, null, '全部桶无 token → null')
+})
+
+test('aggregateOfficialUsage: windowDates 过滤「本月」并重算 tokens', () => {
+  const usage = {
+    range: '30d',
+    granularity: 'day',
+    totals: { request_count: 1000, input_tokens: 9999, usage_usd: 9.99 },
+    buckets: [
+      { from: '2026-09-30T00:00:00Z', until: '2026-10-01T00:00:00Z', request_count: 100, input_tokens: 900, usage_usd: 0.9 },
+      { from: '2026-10-01T00:00:00Z', until: '2026-10-02T00:00:00Z', request_count: 1, input_tokens: 10, usage_usd: 0.01 },
+      { from: '2026-10-02T00:00:00Z', until: '2026-10-03T00:00:00Z', partial: true, request_count: 2, input_tokens: 20, cached_input_tokens: 4, output_tokens: 6, usage_usd: 0.02 },
+    ],
+  }
+  const month = new Set(['2026-10-01', '2026-10-02'])
+  const result = aggregateOfficialUsage(usage, '30d', month)
+  assert.equal(result.requestCount, 3, '1+2：9 月 30 日的桶不计入本月')
+  assert.equal(result.from, '2026-10-01T00:00:00Z')
+  assert.deepEqual(result.tokens, { input: 30, cachedInput: 4, output: 6, usd: 0.03 }, 'tokens 按窗口内桶重算，不用 totals')
+})
+
+test('aggregateOfficialUsage: windowDates 无命中桶时回退全量', () => {
+  const usage = {
+    range: '7d',
+    granularity: 'day',
+    totals: { request_count: 96 },
+    buckets: [{ from: '2026-01-01T00:00:00Z', until: '2026-01-02T00:00:00Z', request_count: 96 }],
+  }
+  const result = aggregateOfficialUsage(usage, '7d', new Set(['2026-10-19']))
+  assert.equal(result.requestCount, 96)
+  assert.equal(result.buckets.length, 1)
+})
+
+test('utcDayKey / utcWeekStartDate / utcMonthStartDate / utcDateKeysFrom: 官方 UTC 窗口助手', () => {
+  assert.equal(utcDayKey(new Date(Date.UTC(2026, 9, 25, 23, 59))), '2026-10-25')
+  // 2026-10-25 是周日 → UTC 周一为 10-19；2026-10-26 是周一 → 当天。
+  assert.equal(utcWeekStartDate(new Date(Date.UTC(2026, 9, 25, 12))), '2026-10-19')
+  assert.equal(utcWeekStartDate(new Date(Date.UTC(2026, 9, 26, 0, 0, 1))), '2026-10-26')
+  assert.equal(utcMonthStartDate(new Date(Date.UTC(2026, 9, 26, 12))), '2026-10-01')
+  assert.equal(utcMonthStartDate(new Date(Date.UTC(2026, 11, 31, 23))), '2026-12-01')
+  assert.deepEqual(
+    utcDateKeysFrom('2026-10-19', '2026-10-25'),
+    ['2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25'],
+  )
+  assert.deepEqual(utcDateKeysFrom('2026-10-26', '2026-10-19'), [], '起点晚于今天 → 空（调用方回退全量）')
+  assert.deepEqual(utcDateKeysFrom('bad', '2026-10-19'), [], '非法输入 → 空')
+  assert.deepEqual(utcDateKeysFrom('2026-10-19', '2026-10-19'), ['2026-10-19'])
 })
 
 /* --------------------------- aggregateSessionEvents -------------------------- */
