@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Ollama Limits + DSH Token Statistics",
-    "description": "Shows Ollama Cloud 5-hour session and weekly limits plus official request counts, and breaks down whole-DSH token usage by provider (today / this week starting Monday / custom range) from local DSH session logs."
+    "title": "Token stats",
+    "description": "Shows whole-DSH token usage by provider from local DSH session logs (today / this week starting Monday / custom range); keys are optional: with an Ollama key it also shows Ollama Cloud 5-hour session and weekly limits plus official request counts, and with an OpenCode key it shows OpenCode Go rolling 5-hour / weekly / monthly quotas and local opencode CLI token/cost usage; sections for unconfigured providers are hidden."
   }
 }

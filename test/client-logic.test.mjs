@@ -588,7 +588,7 @@ test('client bundle：模块形状与依赖约束', () => {
   }
   assert.deepEqual(loaded.requiredModules, ['react'], '只能 require("react")')
   assert.ok(T && typeof T === 'object', '必须暴露 exports.__test')
-  for (const name of ['computeRange', 'boundsOf', 'dayList', 'detectLang', 'interpolate', 'fmtNum', 'fmtPct', 'fmtToken', 'countdownText', 'toneOf', 'clamp', 'num', 'maybeNum', 'DICT_ZH', 'DICT_EN']) {
+  for (const name of ['computeRange', 'boundsOf', 'dayList', 'detectLang', 'interpolate', 'fmtNum', 'fmtPct', 'fmtToken', 'countdownText', 'toneOf', 'clamp', 'num', 'maybeNum', 'DICT_ZH', 'DICT_EN', 'providerKeyFlags', 'providerVisibility', 'opencodeState', 'opencodeWindowRows', 'opencodeBarsRow', 'opencodeLocalSummary', 'opencodeQuotaEstimates']) {
     assert.ok(T[name] !== undefined, '__test 缺少 ' + name)
   }
 })
@@ -720,4 +720,482 @@ test('client：阈值色与倒计时', () => {
   assert.ok(text.length > 0)
   assert.equal(T.countdownText(t, 'not-a-date'), null)
   assert.equal(T.countdownText(t, null), null)
+})
+
+/* ══════════════════════════════════════════════════════════════
+ * OpenCode Go（v0.8 增量）
+ * ══════════════════════════════════════════════════════════════ */
+
+test('client：OpenCode 三窗口行（rolling/weekly/monthly、clamp、缺窗口为 null）', () => {
+  assert.equal(typeof T.opencodeWindowRows, 'function', '__test 缺少 opencodeWindowRows')
+  const rows = T.opencodeWindowRows({
+    configured: true,
+    kind: 'go',
+    key: { source: 'local-cli', masked: 'sk-****U61I' },
+    usage: {
+      rolling: { status: 'ok', usedPercent: 52, remainingPercent: 48, resetsAt: '2026-09-23T00:34:52.704Z' },
+      weekly: { status: 'ok', usedPercent: 120, resetsAt: '2026-09-28T00:00:00.000Z' },
+      monthly: null,
+    },
+  })
+  assert.equal(rows.length, 3, '固定三行：rolling / weekly / monthly')
+  assert.equal(rows[0].key, 'rolling')
+  assert.equal(rows[1].key, 'weekly')
+  assert.equal(rows[2].key, 'monthly')
+  assert.equal(rows[0].titleKey, 'opencode.rolling')
+  assert.equal(rows[0].subKey, 'opencode.rollingSub')
+  assert.equal(rows[0].usedPercent, 52)
+  assert.equal(rows[0].remainingPercent, 48)
+  assert.equal(rows[0].tone, 'ok')
+  assert.equal(rows[0].status, 'ok')
+  assert.equal(rows[0].resetsAt, '2026-09-23T00:34:52.704Z')
+  assert.equal(rows[1].usedPercent, 100, 'usedPercent clamp 到 100')
+  assert.equal(rows[1].remainingPercent, 0, 'remainingPercent 缺失时按 100 - used 反推')
+  assert.equal(rows[1].tone, 'error')
+  assert.equal(rows[2].present, false, '窗口为 null → 无数据行')
+  assert.equal(rows[2].usedPercent, null, '缺窗口不能当成 0%')
+  assert.equal(rows[2].remainingPercent, null)
+  assert.equal(rows[2].tone, 'idle')
+  assert.equal(rows[2].resetsAt, null)
+
+  // 负数 clamp 到 0；remainingPercent 同样 clamp；字符串数字可解析
+  const clamped = T.opencodeWindowRows({ kind: 'go', usage: { rolling: { usedPercent: -5, remainingPercent: 260 } } })
+  assert.equal(clamped[0].usedPercent, 0)
+  assert.equal(clamped[0].remainingPercent, 100)
+  const parsed = T.opencodeWindowRows({ kind: 'go', usage: { rolling: { usedPercent: '52.5' } } })
+  assert.equal(parsed[0].usedPercent, 52.5)
+
+  // 旧 host 缺字段 / 空对象：固定三行全 null，不抛错
+  for (const empty of [null, undefined, {}, { kind: 'none' }, { kind: 'go', usage: null }]) {
+    const emptyRows = T.opencodeWindowRows(empty)
+    assert.equal(emptyRows.length, 3)
+    assert.equal(emptyRows[0].usedPercent, null)
+    assert.equal(emptyRows[0].remainingPercent, null)
+    assert.equal(emptyRows[0].tone, 'idle')
+    assert.equal(emptyRows[2].usedPercent, null)
+  }
+})
+
+test('client：OpenCode 侧栏汇总行取三窗口最大 usedPercent（无 Go 数据不出现）', () => {
+  assert.equal(typeof T.opencodeBarsRow, 'function', '__test 缺少 opencodeBarsRow')
+  const go = {
+    configured: true,
+    kind: 'go',
+    key: { source: 'local-cli', masked: 'sk-****U61I' },
+    usage: {
+      rolling: { status: 'ok', usedPercent: 52, remainingPercent: 48, resetsAt: '2026-09-23T00:34:52.704Z' },
+      weekly: { status: 'ok', usedPercent: 20, remainingPercent: 80, resetsAt: '2026-09-28T00:00:00.000Z' },
+      monthly: { status: 'ok', usedPercent: 61, remainingPercent: 39, resetsAt: '2026-09-25T14:30:41.000Z' },
+    },
+  }
+  const row = T.opencodeBarsRow(go)
+  assert.ok(row, 'kind=go 时应返回侧栏汇总行')
+  assert.equal(row.key, 'opencode')
+  assert.equal(row.windowKey, 'monthly', '取 usedPercent 最大的窗口')
+  assert.equal(row.percent, 61)
+  assert.equal(row.resetsAt, '2026-09-25T14:30:41.000Z')
+  assert.equal(row.windows.length, 3)
+  assert.equal(row.windows[0].key, 'rolling')
+  assert.equal(row.windows[0].usedPercent, 52)
+  assert.equal(row.windows[2].usedPercent, 61)
+
+  // 只有一个窗口有值时也返回该窗口（其余窗口 usedPercent 为 null）
+  const onlyRolling = { ...go, usage: { rolling: { usedPercent: 12 }, weekly: null, monthly: null } }
+  const only = T.opencodeBarsRow(onlyRolling)
+  assert.equal(only.percent, 12)
+  assert.equal(only.windowKey, 'rolling')
+  assert.equal(only.windows.length, 3)
+  assert.equal(only.windows[1].usedPercent, null)
+  assert.equal(only.windows[2].usedPercent, null)
+
+  // 无 OpenCode Go 数据 → null（侧栏不出现该行）
+  for (const empty of [
+    null,
+    undefined,
+    {},
+    { kind: 'none', configured: true },
+    { kind: 'go', usage: null },
+    { kind: 'go', usage: { rolling: null, weekly: null, monthly: null } },
+    { kind: 'go', usage: { rolling: {} } },
+  ]) {
+    assert.equal(T.opencodeBarsRow(empty), null, '无 Go 数据不应产生侧栏行')
+  }
+})
+
+test('client：OpenCode 本机 CLI 汇总（今天/本周/本月 + top3 模型 + 时区）', () => {
+  assert.equal(typeof T.opencodeLocalSummary, 'function', '__test 缺少 opencodeLocalSummary')
+  const local = {
+    available: true,
+    generatedAt: '2026-10-30T01:23:45.000Z',
+    timeZone: 'Asia/Shanghai',
+    today: '2026-10-30',
+    windowDays: 30,
+    totals: {
+      today: { input: 1000, output: 200, cacheRead: 0, cacheWrite: 0, reasoning: 0, total: 1200, requests: 2, sessions: 1, costUsd: 0.02 },
+      week: { total: 6000, requests: 10, costUsd: 0.1 },
+      month: { total: 36000, requests: 60, costUsd: 0.6 },
+    },
+    models: [
+      { provider: 'opencode-go', model: 'small', total: 10 },
+      { provider: 'opencode', model: 'big', total: 300 },
+      { provider: 'opencode', model: 'mid', total: 100 },
+      { provider: 'opencode', model: 'tiny', total: 1 },
+    ],
+  }
+  const summary = T.opencodeLocalSummary(local)
+  assert.ok(summary, '有 totals 时应返回本机用量汇总')
+  assert.equal(summary.today.total, 1200)
+  assert.equal(summary.today.requests, 2)
+  assert.equal(summary.today.costUsd, 0.02)
+  assert.equal(summary.week.total, 6000)
+  assert.equal(summary.month.costUsd, 0.6)
+  assert.equal(summary.timeZone, 'Asia/Shanghai')
+  assert.equal(summary.windowDays, 30)
+  assert.equal(summary.models.length, 3, 'title 里最多列 3 个模型')
+  assert.equal(summary.models[0].model, 'big', '按 total 降序')
+  assert.equal(summary.models[1].model, 'mid')
+  assert.equal(summary.models[2].model, 'small')
+  assert.equal(summary.models[2].provider, 'opencode-go')
+
+  // 缺字段安全降级（不渲染、不抛错）
+  assert.equal(T.opencodeLocalSummary(null), null)
+  assert.equal(T.opencodeLocalSummary(undefined), null)
+  assert.equal(T.opencodeLocalSummary({ available: false }), null)
+  assert.equal(T.opencodeLocalSummary({}), null, '没有 totals 时不渲染')
+
+  const partial = T.opencodeLocalSummary({ totals: { today: { total: 0, requests: 0, costUsd: 0 } } })
+  assert.equal(partial.today.total, 0, '0 是合法值，不能当缺省')
+  assert.equal(partial.week, null)
+  assert.equal(partial.month, null)
+  assert.equal(partial.models.length, 0)
+  assert.equal(partial.windowDays, 30, 'windowDays 缺省 30')
+  assert.equal(partial.timeZone, null)
+  // 旧 host 没有 hours/days → 空数组（卡片会回退为单个日桶），不崩
+  assert.equal(summary.hours.length, 0, '没有 hours → []')
+  assert.equal(summary.days.length, 0, '没有 days → []')
+  assert.equal(summary.todayDate, '2026-10-30', '日期边界透传')
+
+  // v0.9.3：hours / days / 分项指标（输入/缓存读/输出）
+  const withSeries = T.opencodeLocalSummary({
+    ...local,
+    today: '2026-10-30',
+    weekStart: '2026-10-26',
+    monthStart: '2026-10-01',
+    hours: [
+      { hour: '01', input: 10, output: 2, cacheRead: 1, total: 13, requests: 1, costUsd: 0.01 },
+      { hour: '02', input: 20, output: 4, cacheRead: 2, total: 26, requests: 2, costUsd: 0.02 },
+      { bad: true },
+    ],
+    days: [
+      { date: '2026-10-30', total: 30, requests: 3 },
+      { date: '2026-10-29', total: 20, requests: 2 },
+      { total: 99 },
+    ],
+  })
+  assert.equal(withSeries.todayDate, '2026-10-30')
+  assert.equal(withSeries.weekStart, '2026-10-26')
+  assert.equal(withSeries.monthStart, '2026-10-01')
+  assert.equal(withSeries.hours.length, 3, '结构合法的小时桶保留（hour 缺省为空串）')
+  assert.equal(withSeries.hours[0].hour, '01')
+  assert.equal(withSeries.hours[0].total, 13)
+  assert.equal(withSeries.hours[1].requests, 2)
+  assert.equal(withSeries.hours[2].hour, '')
+  assert.equal(withSeries.hours[2].total, 0, '缺字段按 0')
+  assert.equal(withSeries.days.length, 2, '没有 date 的日桶丢弃')
+  assert.equal(withSeries.days[0].date, '2026-10-30')
+  assert.equal(withSeries.days[0].total, 30)
+  assert.equal(withSeries.today.input, 1000, '分项指标透传：输入')
+  assert.equal(withSeries.today.output, 200, '分项指标透传：输出')
+  assert.equal(withSeries.today.cacheRead, 0, '分项指标透传：缓存读')
+  assert.equal(withSeries.week.requests, 10)
+})
+
+test('client：opencodeQuotaEstimates 估算 rolling（最近 5 小时桶）/ weekly / monthly（v0.9.4）', () => {
+  assert.equal(typeof T.opencodeQuotaEstimates, 'function', '__test 缺少 opencodeQuotaEstimates')
+
+  // 24 个小时桶：total = 小时序号 × 100，方便断言 rolling 求和
+  const hours = Array.from({ length: 24 }, (_, hour) => ({
+    hour: String(hour).padStart(2, '0'),
+    total: hour * 100,
+    requests: 1,
+  }))
+  const makeLocal = (overrides) => Object.assign({
+    available: true,
+    generatedAt: '2026-10-30T01:23:45.000Z', // Asia/Shanghai → 本地 09 点
+    timeZone: 'Asia/Shanghai',
+    today: '2026-10-30',
+    weekStart: '2026-10-26',
+    monthStart: '2026-10-01',
+    windowDays: 30,
+    hours,
+    days: [{ date: '2026-10-30', total: 1200, requests: 2 }],
+    totals: { today: { total: 1200 }, week: { total: 6000 }, month: { total: 36000 } },
+    models: [],
+  }, overrides)
+
+  // 本地 09 点 → 汇总 05..09 = 500+600+700+800+900 = 3500
+  const est = T.opencodeQuotaEstimates(makeLocal())
+  assert.equal(est.rolling, 3500, 'rolling 汇总最近 5 个小时桶')
+  assert.equal(est.weekly, 6000, 'weekly 用 totals.week.total')
+  assert.equal(est.monthly, 36000, 'monthly 用 totals.month.total')
+
+  // 同一时刻按 UTC 只有 01 点 → current < 4 → rolling 跳过（跨日窗口不完整）
+  const utc = T.opencodeQuotaEstimates(makeLocal({ timeZone: 'UTC' }))
+  assert.equal(utc.rolling, null, '当前本地小时 < 4 时不估算 rolling')
+  assert.equal(utc.weekly, 6000)
+  assert.equal(utc.monthly, 36000)
+
+  // 本地 02 点（generatedAt 18:00Z 前一天 + Asia/Shanghai）→ 同样跳过
+  const early = T.opencodeQuotaEstimates(makeLocal({ generatedAt: '2026-10-29T18:00:00.000Z' }))
+  assert.equal(early.rolling, null)
+
+  // 零用量：rolling 窗口桶全 0 → 0（不是 null）；weekly 0 也保留
+  const zeros = T.opencodeQuotaEstimates(makeLocal({
+    hours: hours.map((bucket) => ({ ...bucket, total: 0 })),
+    totals: { today: { total: 0 }, week: { total: 0 }, month: { total: 0 } },
+  }))
+  assert.equal(zeros.rolling, 0, '窗口桶存在但为 0 → 0')
+  assert.equal(zeros.weekly, 0)
+  assert.equal(zeros.monthly, 0)
+
+  // 缺 hours（旧 host）→ rolling null，weekly/monthly 仍可用
+  const noHours = T.opencodeQuotaEstimates(makeLocal({ hours: undefined }))
+  assert.equal(noHours.rolling, null, '没有 hours 不估算 rolling')
+  assert.equal(noHours.weekly, 6000)
+
+  // 最近 5 个小时桶一个都没有（只有其它小时的桶）→ null
+  const otherOnly = T.opencodeQuotaEstimates(makeLocal({ hours: [{ hour: '00', total: 999 }] }))
+  assert.equal(otherOnly.rolling, null)
+
+  // 部分桶存在 → 用存在的桶求和（缺失按 0 处理）
+  const partialHours = hours.map((bucket) => (bucket.hour === '05' || bucket.hour === '09' ? bucket : { ...bucket, total: undefined }))
+  void partialHours
+  const partial = T.opencodeQuotaEstimates(makeLocal({ hours: hours.filter((bucket) => bucket.hour === '05' || bucket.hour === '09') }))
+  assert.equal(partial.rolling, 500 + 900, '缺失的小时桶按 0 计，存在的求和')
+
+  // 无 local / 缺 totals / 非法 generatedAt
+  for (const empty of [null, undefined, { available: false }, {}]) {
+    const none = T.opencodeQuotaEstimates(empty)
+    assert.equal(none.rolling, null)
+    assert.equal(none.weekly, null)
+    assert.equal(none.monthly, null)
+  }
+  const badTime = T.opencodeQuotaEstimates(makeLocal({ generatedAt: 'not-a-date' }))
+  assert.equal(badTime.rolling, null, '非法 generatedAt → rolling null')
+  assert.equal(badTime.weekly, 6000, 'weekly 不受影响')
+})
+
+test('client：OpenCode 字典键齐备（中英对称 / CLI Key 提示 / 标题提到 OpenCode）', () => {
+  const keys = [
+    'opencode.title', 'opencode.rolling', 'opencode.weekly', 'opencode.monthly',
+    'opencode.rollingSub', 'opencode.weeklySub', 'opencode.monthlySub',
+    'opencode.barTitle', 'opencode.barSub', 'opencode.placeholder', 'opencode.label',
+    'opencode.changeTitle', 'opencode.changeSub', 'opencode.editKey', 'opencode.clearManual',
+    'opencode.removeKey', 'opencode.removing', 'opencode.removeKeyHint', 'opencode.disabledHint',
+    'opencode.restoreKey', 'opencode.restoring', 'opencode.restoreHint',
+    'opencode.empty', 'opencode.emptyHint', 'opencode.failed', 'opencode.failedHint',
+    'opencode.note', 'opencode.statusOk', 'opencode.statusWarn',
+    'opencode.localTitle', 'opencode.localHint', 'opencode.localToday', 'opencode.localWeek',
+    'opencode.localMonth', 'opencode.localMeta', 'opencode.localTitleAttr',
+    'opencode.keySource', 'opencode.winShort.rolling', 'opencode.winShort.weekly', 'opencode.winShort.monthly',
+    'bars.opencode', 'bars.opencodeDetail',
+  ]
+  for (const key of keys) {
+    assert.equal(typeof T.DICT_ZH[key], 'string', 'zh 缺少 ' + key)
+    assert.equal(typeof T.DICT_EN[key], 'string', 'en 缺少 ' + key)
+    assert.ok(T.DICT_ZH[key].trim() !== '' && T.DICT_EN[key].trim() !== '', '文案不能为空：' + key)
+  }
+  // 无 key 引导必须提到 opencode CLI 登录文件（契约 §7.5）
+  const authPath = '~/.local/share/opencode/auth.json'
+  assert.ok(T.DICT_ZH['opencode.barSub'].includes(authPath), 'zh 无 key 提示应复用 opencode CLI 登录的 Key')
+  assert.ok(T.DICT_EN['opencode.barSub'].includes(authPath), 'en 无 key 提示应复用 opencode CLI 登录的 Key')
+
+  // v0.9：页面标题改为 Token 统计（不再含 OpenCode）；副标题说明 Key 可选、配置后显示限额。
+  assert.equal(T.DICT_ZH['app.title'], 'Token 统计')
+  assert.equal(T.DICT_EN['app.title'], 'Token stats')
+  assert.doesNotMatch(T.DICT_ZH['app.title'], /OpenCode/, 'app.title 不再含 OpenCode')
+  assert.doesNotMatch(T.DICT_EN['app.title'], /OpenCode/, 'app.title 不再含 OpenCode')
+  assert.ok(T.DICT_ZH['app.subtitle'].includes('Ollama / OpenCode'), 'zh 副标题说明两个 provider')
+  assert.ok(T.DICT_EN['app.subtitle'].includes('Ollama / OpenCode'), 'en 副标题说明两个 provider')
+  assert.ok(T.DICT_ZH['app.subtitle'].includes('配置 Key'), 'zh 副标题说明配置 Key 后显示')
+  assert.ok(T.DICT_EN['app.subtitle'].toLowerCase().includes('key'), 'en 副标题说明配置 Key 后显示')
+  assert.equal(T.DICT_ZH['panel.label'], 'Token 统计', '侧栏菜单名应为 Token 统计')
+  assert.equal(T.DICT_EN['panel.label'], 'Token stats')
+  assert.equal(T.DICT_ZH['bars.label'], 'Token 统计', '侧栏底部组的 aria 名也统一为 Token 统计')
+  assert.equal(T.DICT_EN['bars.label'], 'Token stats')
+
+  // v0.9 新增：页头「配置 Key」按钮 + 内联面板文案
+  for (const key of ['key.config', 'key.panelTitle', 'key.panelSub', 'key.ollamaBarTitle', 'key.ollamaBarSub', 'key.opencodeBarTitle', 'key.opencodeBarSub', 'key.close', 'key.panelHint']) {
+    assert.equal(typeof T.DICT_ZH[key], 'string', 'zh 缺少 ' + key)
+    assert.equal(typeof T.DICT_EN[key], 'string', 'en 缺少 ' + key)
+    assert.ok(T.DICT_ZH[key].trim() !== '' && T.DICT_EN[key].trim() !== '', '文案不能为空：' + key)
+  }
+  assert.equal(T.DICT_ZH['key.config'], '配置 Key')
+  assert.ok(T.DICT_ZH['key.panelSub'].includes('必填'), '面板副标题说明 Key 可选')
+
+  // 三窗口卡：中文标题保持短（半宽卡片一行放得下），Rolling / Weekly / Monthly 放进副标题
+  assert.equal(T.DICT_ZH['opencode.rolling'], '5 小时窗口')
+  assert.equal(T.DICT_ZH['opencode.weekly'], '本周限额')
+  assert.equal(T.DICT_ZH['opencode.monthly'], '本月限额')
+  assert.equal(T.DICT_ZH['opencode.rollingSub'], '滚动 5 小时窗口（Rolling）')
+  assert.equal(T.DICT_ZH['opencode.weeklySub'], '每周（Weekly）')
+  assert.equal(T.DICT_ZH['opencode.monthlySub'], '订阅周期（Monthly）')
+  assert.ok(T.DICT_EN['opencode.rolling'].includes('Rolling'), '英文标题保留 Rolling')
+  assert.ok(T.DICT_ZH['opencode.localTitleAttr'].includes('{models}'), '本机用量 title 需要 top 模型占位符')
+  assert.ok(T.DICT_ZH['opencode.localTitleAttr'].includes('{tz}'), '本机用量 title 需要时区占位符')
+
+  // v0.9.1：插件级「移除 Key」/「恢复外部 Key」文案
+  assert.equal(T.DICT_ZH['opencode.removeKey'], '移除 Key')
+  assert.equal(T.DICT_EN['opencode.removeKey'], 'Remove key')
+  assert.equal(T.DICT_ZH['opencode.restoreKey'], '恢复外部 Key')
+  assert.equal(T.DICT_EN['opencode.restoreKey'], 'Restore external key')
+  assert.ok(T.DICT_ZH['opencode.disabledHint'].includes('插件已移除该 Key'), 'zh 停用说明')
+  assert.ok(T.DICT_ZH['opencode.disabledHint'].includes('环境变量'), 'zh 停用说明强调外部配置未删除')
+  assert.ok(T.DICT_ZH['opencode.restoreHint'].includes('粘贴新 Key'), 'zh 恢复说明提示粘贴新 Key 也可恢复')
+  assert.ok(T.DICT_EN['opencode.disabledHint'].includes('environment variable'), 'en 停用说明')
+  assert.ok(T.DICT_EN['opencode.removeKeyHint'].toLowerCase().includes('not deleted'), 'en 移除说明强调不删除外部配置')
+
+  // v0.9.2：provider 显示开关文案
+  for (const key of ['visibility.label', 'visibility.ollama', 'visibility.opencode', 'visibility.hint', 'visibility.toggleOn', 'visibility.toggleOff']) {
+    assert.equal(typeof T.DICT_ZH[key], 'string', 'zh 缺少 ' + key)
+    assert.equal(typeof T.DICT_EN[key], 'string', 'en 缺少 ' + key)
+    assert.ok(T.DICT_ZH[key].trim() !== '' && T.DICT_EN[key].trim() !== '', '文案不能为空：' + key)
+  }
+  assert.equal(T.DICT_ZH['visibility.ollama'], 'Ollama')
+  assert.equal(T.DICT_ZH['visibility.opencode'], 'OpenCode')
+  assert.equal(T.DICT_EN['visibility.ollama'], 'Ollama')
+  assert.equal(T.DICT_EN['visibility.opencode'], 'OpenCode')
+  assert.ok(T.DICT_ZH['visibility.hint'].includes('不会删除任何 Key'), 'zh 提示不删除 Key')
+  assert.ok(T.DICT_EN['visibility.hint'].toLowerCase().includes('no key is deleted'), 'en 提示不删除 Key')
+  assert.equal(T.interpolate(T.DICT_ZH['visibility.toggleOn'], { provider: 'Ollama' }), '已显示：点击隐藏 Ollama')
+
+  // v0.9.3：本机 CLI 用量三卡文案
+  for (const key of ['opencode.localTokenUnit', 'opencode.localCost', 'opencode.localRange', 'opencode.localNote']) {
+    assert.equal(typeof T.DICT_ZH[key], 'string', 'zh 缺少 ' + key)
+    assert.equal(typeof T.DICT_EN[key], 'string', 'en 缺少 ' + key)
+    assert.ok(T.DICT_ZH[key].trim() !== '' && T.DICT_EN[key].trim() !== '', '文案不能为空：' + key)
+  }
+  assert.equal(T.DICT_ZH['opencode.localTokenUnit'], 'Token')
+  assert.equal(T.DICT_ZH['opencode.localCost'], '费用')
+  assert.equal(T.DICT_EN['opencode.localCost'], 'Cost')
+  assert.equal(T.interpolate(T.DICT_ZH['opencode.localRange'], { from: '2026-10-01', to: '2026-10-30' }), '2026-10-01 — 2026-10-30')
+  assert.ok(T.DICT_ZH['opencode.localNote'].includes('来自本机 opencode.db'), 'zh 底部口径说明')
+  assert.ok(T.DICT_EN['opencode.localNote'].toLowerCase().includes('local opencode.db'), 'en 底部口径说明')
+
+  // v0.9.4：额度卡估算说明
+  assert.equal(typeof T.DICT_ZH['opencode.estimateHint'], 'string', 'zh 缺少 opencode.estimateHint')
+  assert.equal(typeof T.DICT_EN['opencode.estimateHint'], 'string', 'en 缺少 opencode.estimateHint')
+  assert.ok(T.DICT_ZH['opencode.estimateHint'].includes('本机 opencode.db'), 'zh 说明估算来源')
+  assert.ok(T.DICT_ZH['opencode.estimateHint'].includes('不是官方额度'), 'zh 说明估算口径不是官方')
+  assert.ok(T.DICT_ZH['opencode.estimateHint'].includes('最近 5 个本机小时桶'), 'zh 说明滚动 5h 近似')
+  assert.ok(T.DICT_EN['opencode.estimateHint'].includes('local opencode.db'), 'en 说明估算来源')
+  assert.ok(T.DICT_EN['opencode.estimateHint'].toLowerCase().includes('not the official quota'), 'en 说明估算口径不是官方')
+})
+
+test('client：providerKeyFlags 判定 Ollama / OpenCode Key 是否已配置（v0.9）', () => {
+  assert.equal(typeof T.providerKeyFlags, 'function', '__test 缺少 providerKeyFlags')
+
+  // 两个都有 → A 区两栏、C 区渲染、页头不出现「配置 Key」
+  const both = T.providerKeyFlags({
+    key: { source: 'credentials', masked: '****cWjS' },
+    opencode: { key: { source: 'local-cli', masked: 'sk-****U61I' } },
+  })
+  assert.equal(both.hasOllamaKey, true)
+  assert.equal(both.hasOpenCodeKey, true)
+  assert.equal(both.anyKey, true)
+  assert.equal(both.missingOllama, false)
+  assert.equal(both.missingOpenCode, false)
+  assert.equal(both.showConfig, false, '两个都已配置时不显示配置入口')
+
+  // 仅 Ollama
+  const onlyOllama = T.providerKeyFlags({ key: { source: 'env', masked: '****1fdd' } })
+  assert.equal(onlyOllama.hasOllamaKey, true)
+  assert.equal(onlyOllama.hasOpenCodeKey, false, '缺 opencode 字段按未配置处理')
+  assert.equal(onlyOllama.missingOpenCode, true)
+  assert.equal(onlyOllama.showConfig, true)
+
+  // 仅 OpenCode
+  const onlyOpencode = T.providerKeyFlags({
+    key: { source: 'none', masked: null },
+    opencode: { key: { source: 'manual', masked: 'sk-****U61I' } },
+  })
+  assert.equal(onlyOpencode.hasOllamaKey, false)
+  assert.equal(onlyOpencode.hasOpenCodeKey, true)
+  assert.equal(onlyOpencode.missingOllama, true)
+  assert.equal(onlyOpencode.showConfig, true)
+
+  // 都没有 / 空 snapshot / 旧 host 缺字段：不崩，全部未配置
+  for (const empty of [null, undefined, {}, { key: null }, { key: { source: 'none' } }, { key: { source: 'none', masked: null }, opencode: null }]) {
+    const flags = T.providerKeyFlags(empty)
+    assert.equal(flags.hasOllamaKey, false, 'source=none / 缺 key → 未配置')
+    assert.equal(flags.hasOpenCodeKey, false)
+    assert.equal(flags.anyKey, false)
+    assert.equal(flags.showConfig, true)
+  }
+
+  // opencode.key.source = 'none'（有 key 对象但未配置）→ false
+  const noneOc = T.providerKeyFlags({ opencode: { key: { source: 'none', masked: null }, configured: false } })
+  assert.equal(noneOc.hasOpenCodeKey, false)
+})
+
+test('client：providerVisibility 显示开关归一化（v0.9.2，缺字段默认显示）', () => {
+  assert.equal(typeof T.providerVisibility, 'function', '__test 缺少 providerVisibility')
+
+  // 旧 host 缺字段 / 非对象 / null → 两个都显示
+  for (const empty of [null, undefined, {}, { visibility: null }, { visibility: 'nope' }, { visibility: 42 }]) {
+    const flags = T.providerVisibility(empty)
+    assert.equal(flags.ollama, true, '缺 visibility 字段 → Ollama 默认显示')
+    assert.equal(flags.opencode, true, '缺 visibility 字段 → OpenCode 默认显示')
+  }
+
+  const onlyOllama = T.providerVisibility({ visibility: { ollama: true, opencode: false } })
+  assert.equal(onlyOllama.ollama, true)
+  assert.equal(onlyOllama.opencode, false)
+  const onlyOpencode = T.providerVisibility({ visibility: { ollama: false, opencode: true } })
+  assert.equal(onlyOpencode.ollama, false)
+  assert.equal(onlyOpencode.opencode, true)
+  const bothOff = T.providerVisibility({ visibility: { ollama: false, opencode: false } })
+  assert.equal(bothOff.ollama, false)
+  assert.equal(bothOff.opencode, false)
+
+  // 只有显式 false 才算关闭；缺字段 / 非布尔脏值 → 保持显示
+  const partial = T.providerVisibility({ visibility: { opencode: false } })
+  assert.equal(partial.ollama, true, '缺 ollama 字段 → 显示')
+  assert.equal(partial.opencode, false)
+  const dirty = T.providerVisibility({ visibility: { ollama: 'no', opencode: 0 } })
+  assert.equal(dirty.ollama, true, '非布尔值不当作关闭')
+  assert.equal(dirty.opencode, true)
+})
+
+test('client：OpenCode 插件级移除（disabled）识别与默认值（v0.9.1）', () => {
+  // opencodeState.disabled：缺字段 / 旧 host / null 一律 false
+  assert.equal(T.opencodeState(null).disabled, false)
+  assert.equal(T.opencodeState({}).disabled, false, '缺 disabled 字段默认 false')
+  assert.equal(T.opencodeState({ disabled: 'yes' }).disabled, false, '非布尔值不当作 true')
+  const state = T.opencodeState({
+    configured: false,
+    disabled: true,
+    key: { source: 'none', masked: null },
+    kind: 'none',
+    usage: null,
+    local: null,
+  })
+  assert.equal(state.disabled, true)
+  assert.equal(state.configured, false)
+  assert.equal(state.key.source, 'none')
+
+  // providerKeyFlags：disabled 不改变 hasOpenCodeKey（仍只看 key.source），额外透出 opencodeDisabled
+  const flags = T.providerKeyFlags({
+    key: { source: 'credentials', masked: '****cWjS' },
+    opencode: { configured: false, disabled: true, key: { source: 'none', masked: null }, kind: 'none' },
+  })
+  assert.equal(flags.hasOpenCodeKey, false)
+  assert.equal(flags.opencodeDisabled, true, 'KeyPanel 需要 disabled 标志来显示「恢复外部 Key」')
+  assert.equal(flags.missingOpenCode, true)
+  assert.equal(flags.showConfig, true)
+  assert.equal(flags.hasOllamaKey, true)
+
+  const normal = T.providerKeyFlags({ key: { source: 'credentials' }, opencode: { key: { source: 'local-cli' } } })
+  assert.equal(normal.opencodeDisabled, false, '已配置时默认未停用')
+  assert.equal(normal.hasOpenCodeKey, true)
 })

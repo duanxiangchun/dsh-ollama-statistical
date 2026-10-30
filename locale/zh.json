@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Ollama 限额 + DSH Token 统计",
-    "description": "显示 Ollama Cloud 的 5 小时会话限额、周限额与官方请求量，并按供应商分类统计整个 DSH 的 token 用量（今天 / 本周周一开始 / 自定义日期），数据来自本机 DSH 会话日志。"
+    "title": "Token 统计",
+    "description": "显示本机 DSH 会话日志按供应商分类统计的整个 DSH token 用量（今天 / 本周周一开始 / 自定义日期）；Key 可选：配置 Ollama Key 后显示 Ollama Cloud 的 5 小时会话限额、周限额与官方请求量，配置 OpenCode Key 后显示 OpenCode Go 的滚动 5 小时 / 周 / 月额度与本机 opencode CLI 的 token/费用用量；未配置的 provider 自动隐藏对应区块。"
   }
 }

@@ -1082,7 +1082,33 @@ test('buildSnapshot: 默认形状满足契约（version/cached/key/limits/offici
   assert.equal(value.tokens.scope, 'all-providers')
   assert.deepEqual(value.tokens.providers, [])
   assert.equal(value.tokens.scan.partial, false)
+  // v0.8 增量：opencode 块始终存在（默认空形状；无 key 时 fetchedAt 为 null，见 §7.3）
+  assert.equal(value.opencode.configured, false)
+  assert.deepEqual(value.opencode.key, { source: 'none', masked: null })
+  assert.equal(value.opencode.kind, 'none')
+  assert.equal(value.opencode.fetchedAt, null)
+  assert.equal(value.opencode.note, null)
+  assert.equal(value.opencode.usage, null)
+  assert.equal(value.opencode.local, null)
   assert.deepEqual(value.errors, [])
+})
+
+test('buildSnapshot: parts.opencode 为 plain object 才采用，version 仍为 1', () => {
+  const opencode = {
+    configured: true,
+    key: { source: 'manual', masked: 'sk-****U61I' },
+    kind: 'go',
+    fetchedAt: '2026-10-30T01:23:45.000Z',
+    note: null,
+    usage: { rolling: { status: 'ok', usedPercent: 52, remainingPercent: 48, resetsAt: 'x' } },
+    local: null,
+  }
+  const adopted = buildSnapshot({ opencode })
+  assert.deepEqual(adopted.opencode, opencode)
+  assert.equal(adopted.version, 1)
+  for (const invalid of [null, [], 'x', 1]) {
+    assert.equal(buildSnapshot({ opencode: invalid }).opencode.kind, 'none')
+  }
 })
 
 test('buildSnapshot: 保留合法数据、过滤非法 errors 项', () => {

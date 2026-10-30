@@ -3,7 +3,8 @@
  *  - shouldThrottleRefresh 纯函数边界；
  *  - handleRefresh 在间隔内直接返回 lastSnapshot（cached:true + rate-limit 说明），
  *    并且完全不进入采集路径（不会调用 ctx.get / 官方网络）；
- *  - 超过 15s 后 handleRefresh 才会走正常采集路径。
+ *  - 超过 15s 后 handleRefresh 才会走正常采集路径（v0.9 起没有 Key 也返回 ok:true +
+ *    本机 token 统计，见契约 §8）。
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -14,26 +15,40 @@ import { join } from 'node:path'
 import { handleRefresh, shouldThrottleRefresh } from '../lib/index.js'
 
 /**
- * 隔离环境凭证：清掉 OLLAMA_API_KEY，并把 USERPROFILE/HOME 指向空临时目录，
- * 保证 readLocalCliToken 读不到真实 ~/.ollama/auth.json（避免测试意外走真实网络）。
+ * 隔离环境凭证：清掉 Ollama / OpenCode 的 key 与路径环境变量，并把
+ * USERPROFILE/HOME/XDG_DATA_HOME/LOCALAPPDATA 指向空临时目录，保证
+ * readLocalCliToken / readOpenCodeAuthToken / resolveOpenCodeDbPath 读不到真实文件
+ * （避免测试意外走真实网络，或读到本机 opencode CLI 的 key / 数据库）。
  */
 async function withNoAmbientKey(run) {
-  const savedKey = process.env.OLLAMA_API_KEY
-  const savedProfile = process.env.USERPROFILE
-  const savedHome = process.env.HOME
+  const isolatedNames = [
+    'OLLAMA_API_KEY',
+    'OPENCODE_API_KEY',
+    'OPENCODE_GO_API_KEY',
+    'OPENCODE_AUTH_PATH',
+    'OPENCODE_DB_PATH',
+    'XDG_DATA_HOME',
+    'LOCALAPPDATA',
+    'USERPROFILE',
+    'HOME',
+    'DSH_HOME',
+  ]
+  const saved = new Map()
+  for (const name of isolatedNames) saved.set(name, process.env[name])
   const emptyHome = mkdtempSync(join(tmpdir(), 'dsh-ollama-nohome-'))
-  delete process.env.OLLAMA_API_KEY
+  for (const name of isolatedNames) delete process.env[name]
   process.env.USERPROFILE = emptyHome
   process.env.HOME = emptyHome
+  process.env.XDG_DATA_HOME = emptyHome
+  process.env.LOCALAPPDATA = emptyHome
+  process.env.DSH_HOME = join(emptyHome, 'dsh-home')
   try {
     return await run()
   } finally {
-    if (savedKey === undefined) delete process.env.OLLAMA_API_KEY
-    else process.env.OLLAMA_API_KEY = savedKey
-    if (savedProfile === undefined) delete process.env.USERPROFILE
-    else process.env.USERPROFILE = savedProfile
-    if (savedHome === undefined) delete process.env.HOME
-    else process.env.HOME = savedHome
+    for (const [name, value] of saved) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
     rmSync(emptyHome, { recursive: true, force: true })
   }
 }
@@ -47,6 +62,15 @@ function sampleValue() {
     limits: { kind: 'legacy', session: null, weekly: null, credits: null, purchasedUsd: 0 },
     official: { fetchedAt: new Date().toISOString(), range24h: null, range7d: null, range30d: null },
     tokens: { days: [], models: [], scan: { partial: false } },
+    opencode: {
+      configured: false,
+      key: { source: 'none', masked: null },
+      kind: 'none',
+      fetchedAt: null,
+      note: null,
+      usage: null,
+      local: null,
+    },
     errors: [],
   }
 }
@@ -111,9 +135,18 @@ test('handleRefresh: 超过 15s 会进入正常采集路径', async () => {
     }
     const out = await handleRefresh(rt)
     assert.ok(ctxCalls > 0, '超过 15s 应真正进入采集（会解析 key 来源）')
-    // 没有 key 时走 no-key 降级，而不是限流缓存
-    assert.equal(out.ok, false)
-    assert.equal(out.error.code, 'no-key')
+    // v0.9（契约 §8）：Key 可选 —— 两个 key 都没有也返回 ok:true + 本机 token 统计
+    assert.equal(out.ok, true)
+    assert.equal(out.value.cached, false)
+    assert.deepEqual(out.value.key, { source: 'none', masked: null })
+    assert.equal(out.value.limits.kind, 'none')
+    assert.equal(out.value.official.range24h, null)
+    assert.equal(out.value.opencode.configured, false)
+    assert.equal(out.value.tokens.days.length, 30)
+    assert.equal(out.value.tokens.providers.length, 0)
+    assert.equal(out.value.errors.some((item) => item.source === 'key'), false, '新 host 不再产生 no-key')
+    // 没有 sessionQuery 服务时 tokens 独立降级为 internal，不阻塞整包
+    assert.ok(out.value.errors.some((item) => item.source === 'tokens' && item.code === 'internal'))
   })
 })
 
@@ -129,7 +162,10 @@ test('handleRefresh: 限流且没有任何缓存时才允许穿透采集', async
       warm: { running: false, plan: null },
     }
     const out = await handleRefresh(rt)
-    assert.equal(out.ok, false)
-    assert.equal(out.error.code, 'no-key')
+    // v0.9：穿透采集后没有 Key 也返回 ok:true（不再 no-key/no-data）
+    assert.equal(out.ok, true)
+    assert.equal(out.value.key.source, 'none')
+    assert.equal(out.value.tokens.days.length, 30)
+    assert.equal(out.value.errors.some((item) => item.source === 'key'), false)
   })
 })
